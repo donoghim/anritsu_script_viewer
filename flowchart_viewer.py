@@ -101,6 +101,11 @@ class GraphicsNodeItem(QGraphicsRectItem):
         if self.viewer:
             self.viewer.handle_node_click(self)
 
+    def mouseDoubleClickEvent(self, event):
+        super().mouseDoubleClickEvent(event)
+        if self.viewer:
+            self.viewer.handle_node_double_click(self)
+
 
 class CustomGraphicsView(QGraphicsView):
     """Ctrl+wheel zooms; plain wheel scrolls normally."""
@@ -930,6 +935,8 @@ class FlowchartViewer(QWidget):
         self.selected_item = item
         item.set_node_selected(True)
         self.node_selected.emit(item.node)
+
+    def handle_node_double_click(self, item: GraphicsNodeItem):
         if item.node.child_actions:
             self.compound_selected.emit(item.node)
 
