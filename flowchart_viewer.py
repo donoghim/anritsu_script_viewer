@@ -595,20 +595,38 @@ class FlowchartViewer(QWidget):
                 rank[node.id] = next_rank
                 next_rank += 1
 
-        # The main vertical spine follows each action's first normal outcome.
-        # This deterministic scenario order keeps an OK response directly
-        # above its intended next wait/action rather than choosing a longer
-        # but unrelated normal branch.
+        # The main vertical spine normally follows each action's first normal
+        # outcome. If a Timeout opens the longest reachable continuation, it
+        # is selected instead so the real scenario flow can continue below.
         primary_edge_indices: set = set()
         primary_node_ids: set = set()
         primary_node_order: List[str] = []
+        continuation_length: Dict[str, int] = {}
+        for node_id in reversed(ordered_ids):
+            continuation_length[node_id] = 1 + max(
+                (
+                    continuation_length.get(edge["target"], 0)
+                    for edge in outgoing[node_id]
+                    if edge["normal"] or edge["label"].strip().lower() == "timeout"
+                ),
+                default=0,
+            )
         current_id = start_node.id
         while current_id not in primary_node_ids:
             primary_node_ids.add(current_id)
             primary_node_order.append(current_id)
-            primary_edge = next(
-                (edge for edge in outgoing[current_id] if edge["normal"]),
-                None,
+            main_candidates = [
+                edge for edge in outgoing[current_id]
+                if edge["normal"] or edge["label"].strip().lower() == "timeout"
+            ]
+            primary_edge = max(
+                main_candidates,
+                key=lambda edge: (
+                    continuation_length.get(edge["target"], 0),
+                    1 if edge["normal"] else 0,
+                    -edge["outcome_index"],
+                ),
+                default=None,
             )
             if primary_edge is None:
                 break
