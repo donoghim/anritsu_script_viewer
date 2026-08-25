@@ -12,7 +12,7 @@ from flowchart_viewer import FlowchartViewer
 from parameter_tree import ParameterTreeWidget
 
 class AnritsuScenarioViewerWindow(QMainWindow):
-    """Main Window for Anritsu STD Scenario Viewer v1.0.2 with Nested Child Scope Navigation."""
+    """Main Window for Anritsu STD Scenario Viewer v1.0.1 with Nested Child Scope Navigation."""
     def __init__(self, default_file: Optional[str] = None):
         super().__init__()
         self.scenario: Optional[AnritsuScenario] = None
@@ -22,7 +22,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         # Navigation Stack for Child Scopes: List of (node, scope_prefix)
         self.child_scope_stack: List[Tuple[AnritsuNode, str]] = []
 
-        self.setWindowTitle("Anritsu STD Scenario Viewer v1.0.2")
+        self.setWindowTitle("Anritsu STD Scenario Viewer v1.0.1")
         self.resize(1300, 850)
 
         self._init_ui()

@@ -26,7 +26,7 @@ class ParameterTreeWidget(QWidget):
         info_layout.setContentsMargins(6, 6, 6, 6)
         info_layout.setSpacing(2)
 
-        self.lbl_version = QLabel("Version: v1.0.2")
+        self.lbl_version = QLabel("Version: v1.0.1")
         self.lbl_file = QLabel("Current File: -")
         self.lbl_step = QLabel("Step: -")
         self.lbl_type = QLabel("Type: -")
