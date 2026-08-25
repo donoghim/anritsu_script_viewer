@@ -35,7 +35,8 @@ COL_RETURN   = QColor(20, 80, 200)    # blue   – exception→normal return pat
 # Labels that indicate a NORMAL flow (will route straight down or right-col straight)
 NORMAL_LABELS = {"ok", "assigned", "logged", "displayed",
                  "true", "response received", "timerstarted", "timerexpired",
-                 "timerstopped", ""}
+                 "timerstopped", "authentication response",
+                 "security mode complete (emm)", "security mode complete (rrc)", ""}
 # Labels that indicate an EXCEPTION/ERROR branch
 EXCEPT_LABELS = {"timeout", "false", "fail", "failed", "error",
                  "system error"}
@@ -144,6 +145,8 @@ class FlowchartViewer(QWidget):
         self.current_scope_prefix = "root"
         self.node_items: Dict[str, GraphicsNodeItem] = {}
         self.selected_item: Optional[GraphicsNodeItem] = None
+        self.connector_items_by_source: Dict[str, List[tuple]] = {}
+        self.highlighted_connector_items: List[tuple] = []
         self._init_ui()
 
     def _init_ui(self):
@@ -178,6 +181,8 @@ class FlowchartViewer(QWidget):
         self.scene.clear()
         self.node_items.clear()
         self.selected_item = None
+        self.connector_items_by_source.clear()
+        self.highlighted_connector_items.clear()
 
         if not nodes:
             return
@@ -590,6 +595,26 @@ class FlowchartViewer(QWidget):
                 rank[node.id] = next_rank
                 next_rank += 1
 
+        # The main vertical spine follows each action's first normal outcome.
+        # This deterministic scenario order keeps an OK response directly
+        # above its intended next wait/action rather than choosing a longer
+        # but unrelated normal branch.
+        primary_edge_indices: set = set()
+        primary_node_ids: set = set()
+        primary_node_order: List[str] = []
+        current_id = start_node.id
+        while current_id not in primary_node_ids:
+            primary_node_ids.add(current_id)
+            primary_node_order.append(current_id)
+            primary_edge = next(
+                (edge for edge in outgoing[current_id] if edge["normal"]),
+                None,
+            )
+            if primary_edge is None:
+                break
+            primary_edge_indices.add(primary_edge["index"])
+            current_id = primary_edge["target"]
+
         # Select one deterministic parent per node. Normal outcomes win, which
         # keeps the normal path vertically continuous in the generated tree.
         tree_parent: Dict[str, str] = {}
@@ -601,27 +626,57 @@ class FlowchartViewer(QWidget):
             ]
             if not candidates:
                 continue
-            parent_edge = min(candidates, key=edge_key)
+            parent_edge = min(
+                candidates,
+                key=lambda edge: (
+                    0 if edge["index"] in primary_edge_indices else 1,
+                    edge_key(edge),
+                ),
+            )
             tree_parent[target_id] = parent_edge["source"]
             tree_edge_indices.add(parent_edge["index"])
+
+        # The first pass uses complete-DAG ranks to choose valid tree parents.
+        # Re-rank from that tree so a normal continuation occupies the next
+        # level below its parent; non-tree exception paths must not push it down.
+        tree_rank: Dict[str, int] = {}
+        for node_id in ordered_ids:
+            parent_id = tree_parent.get(node_id)
+            tree_rank[node_id] = tree_rank.get(parent_id, -1) + 1
+        rank = tree_rank
+        # A selected main-flow edge has stronger placement priority than a
+        # competing incoming tree edge: its successor must be the next row.
+        for level, node_id in enumerate(primary_node_order):
+            rank[node_id] = level
 
         # Tree children continue the parent lane for their selected normal
         # parent edge; branches receive a new lane at the same depth.
         lane_by_id: Dict[str, int] = {}
         occupied_slots: set = set()
-        next_lane = 0
+        next_lane = 1
         for node_id in ordered_ids:
+            if node_id in primary_node_ids:
+                lane_by_id[node_id] = 0
+                occupied_slots.add((rank[node_id], 0))
+                continue
             parent_id = tree_parent.get(node_id)
             parent_edge = next(
                 (edge for edge in incoming[node_id]
                  if edge["index"] in tree_edge_indices),
                 None,
             )
-            if parent_id is not None and parent_edge and parent_edge["normal"]:
+            if (
+                parent_id is not None
+                and parent_edge
+                and parent_edge["normal"]
+                and parent_id not in primary_node_ids
+            ):
                 lane = lane_by_id[parent_id]
             else:
-                lane = next_lane
-                next_lane += 1
+                lane = 1
+                while (rank[node_id], lane) in occupied_slots:
+                    lane += 1
+                next_lane = max(next_lane, lane + 1)
             while (rank[node_id], lane) in occupied_slots:
                 lane = next_lane
                 next_lane += 1
@@ -638,10 +693,50 @@ class FlowchartViewer(QWidget):
         lane_density: Dict[int, int] = {}
         for node_id, lane in lane_by_id.items():
             lane_density[lane] = lane_density.get(lane, 0) + connection_count[node_id]
-        lane_order = sorted(lane_density, key=lambda lane: (-lane_density[lane], lane))
-        lane_remap = {lane: index for index, lane in enumerate(lane_order)}
+        auxiliary_lanes = sorted(
+            (lane for lane in lane_density if lane != 0),
+            key=lambda lane: (-lane_density[lane], lane),
+        )
+        lane_remap = {0: 0}
+        lane_remap.update({lane: index + 1 for index, lane in enumerate(auxiliary_lanes)})
         lane_by_id = {
             node_id: lane_remap[lane]
+            for node_id, lane in lane_by_id.items()
+        }
+
+        # Stream lanes are only required to be distinct while their nodes
+        # coexist vertically. Reuse a display lane once an earlier stream has
+        # ended, which prevents long scenarios from expanding indefinitely.
+        lane_span: Dict[int, List[int]] = {}
+        remapped_lane_density: Dict[int, int] = {}
+        for node_id, lane in lane_by_id.items():
+            level = rank[node_id]
+            span = lane_span.setdefault(lane, [level, level])
+            span[0] = min(span[0], level)
+            span[1] = max(span[1], level)
+            remapped_lane_density[lane] = (
+                remapped_lane_density.get(lane, 0) + connection_count[node_id]
+            )
+        display_lane_end: List[int] = [lane_span[0][1]] if 0 in lane_span else []
+        lane_display_remap: Dict[int, int] = {0: 0} if 0 in lane_span else {}
+        for lane in sorted(
+            (value for value in lane_span if value != 0),
+            key=lambda value: (lane_span[value][0], -remapped_lane_density[value], value),
+        ):
+            start_level, end_level = lane_span[lane]
+            reusable = next(
+                (index for index, occupied_end in enumerate(display_lane_end[1:], start=1)
+                 if occupied_end < start_level),
+                None,
+            )
+            if reusable is None:
+                reusable = len(display_lane_end)
+                display_lane_end.append(end_level)
+            else:
+                display_lane_end[reusable] = end_level
+            lane_display_remap[lane] = reusable
+        lane_by_id = {
+            node_id: lane_display_remap[lane]
             for node_id, lane in lane_by_id.items()
         }
 
@@ -659,71 +754,81 @@ class FlowchartViewer(QWidget):
         lane_x: Dict[int, float] = {0: 100.0}
         for lane in range(1, max(lane_by_id.values(), default=0) + 1):
             previous_lane = lane - 1
-            gap = 40 + route_count_by_boundary.get(previous_lane, 0) * 20
+            boundary_routes = route_count_by_boundary.get(previous_lane, 0)
+            extra_lane_groups = max(0, math.ceil(math.sqrt(boundary_routes)) - 1)
+            gap = 40 + extra_lane_groups * 20
             lane_x[lane] = lane_x[previous_lane] + W + gap
 
-        # Reserve enough vertical space per level for 10px-separated source
-        # exits and destination approaches. This makes their horizontal segments
-        # live only in the empty gap between node rows.
-        outgoing_by_rank: Dict[int, int] = {}
-        incoming_by_rank: Dict[int, int] = {}
+        # Reserve space only where a routed edge needs a horizontal segment:
+        # immediately below its source or immediately above its destination.
+        # A vertical segment crossing an intermediate level needs no extra row.
+        routing_pressure_by_gap: Dict[int, int] = {}
         for edge in edges:
-            outgoing_by_rank[rank[edge["source"]]] = (
-                outgoing_by_rank.get(rank[edge["source"]], 0) + 1
+            source_level = rank[edge["source"]]
+            target_level = rank[edge["target"]]
+            is_straight_tree_edge = (
+                edge["index"] in tree_edge_indices
+                and edge["normal"]
+                and lane_by_id[edge["source"]] == lane_by_id[edge["target"]]
+                and target_level == source_level + 1
             )
-            incoming_by_rank[rank[edge["target"]]] = (
-                incoming_by_rank.get(rank[edge["target"]], 0) + 1
+            if is_straight_tree_edge:
+                continue
+            routing_pressure_by_gap[source_level] = (
+                routing_pressure_by_gap.get(source_level, 0) + 1
             )
+            if target_level > source_level:
+                destination_gap = target_level - 1
+                routing_pressure_by_gap[destination_gap] = (
+                    routing_pressure_by_gap.get(destination_gap, 0) + 1
+                )
         level_y: Dict[int, float] = {}
         current_y = 40.0
         for level in sorted(set(rank.values())):
             level_y[level] = current_y
-            current_y += H + 30 + 6 * (
-                outgoing_by_rank.get(level, 0) + incoming_by_rank.get(level, 0)
-            )
+            current_y += H + 30 + 10 * routing_pressure_by_gap.get(level, 0)
 
-        # Reserve a parent's X slot for one tree child before compacting the
-        # remaining same-level nodes into the closest free slots.
+        # Keep each connected stream in its computed lane. This avoids packing
+        # unrelated branches into one column and creating dense route bundles.
+        # Only a node with no graph links can reuse an empty left slot.
         pos_map: Dict[str, QPointF] = {}
         slot_x = [lane_x[lane] for lane in sorted(lane_x)]
-        tree_edge_by_target = {
-            edge["target"]: edge
-            for edge in edges
-            if edge["index"] in tree_edge_indices
-        }
         nodes_by_level: Dict[int, List[str]] = {}
         for node_id in ordered_ids:
             nodes_by_level.setdefault(rank[node_id], []).append(node_id)
         for level, level_nodes in nodes_by_level.items():
             available_slots = list(slot_x)
-            aligned = sorted(
-                (
-                    node_id for node_id in level_nodes
-                    if node_id in tree_edge_by_target
-                    and tree_edge_by_target[node_id]["source"] in pos_map
-                ),
-                key=lambda node_id: (
-                    0 if tree_edge_by_target[node_id]["normal"] else 1,
-                    -connection_count[node_id], node_order[node_id],
-                ),
+            connected_nodes = sorted(
+                (node_id for node_id in level_nodes if connection_count[node_id]),
+                key=lambda node_id: (lane_by_id[node_id], node_order[node_id]),
             )
-            placed: set = set()
-            for node_id in aligned:
-                parent_x = pos_map[tree_edge_by_target[node_id]["source"]].x()
-                if parent_x in available_slots:
-                    pos_map[node_id] = QPointF(parent_x, level_y[level])
-                    available_slots.remove(parent_x)
-                    placed.add(node_id)
-            for node_id in sorted(
-                (node_id for node_id in level_nodes if node_id not in placed),
-                key=lambda node_id: (-connection_count[node_id], lane_by_id[node_id], node_order[node_id]),
-            ):
-                parent_edge = tree_edge_by_target.get(node_id)
-                if parent_edge and parent_edge["source"] in pos_map:
-                    parent_x = pos_map[parent_edge["source"]].x()
-                    candidate_x = min(available_slots, key=lambda value: (abs(value - parent_x), value))
+            for node_id in connected_nodes:
+                preferred_x = lane_x[lane_by_id[node_id]]
+                if preferred_x in available_slots:
+                    candidate_x = preferred_x
+                elif available_slots:
+                    candidate_x = min(
+                        available_slots,
+                        key=lambda slot: (abs(slot - preferred_x), slot),
+                    )
                 else:
+                    candidate_x = max(
+                        position.x() for position in pos_map.values()
+                    ) + W + 40
+                    available_slots.append(candidate_x)
+                pos_map[node_id] = QPointF(candidate_x, level_y[level])
+                available_slots.remove(candidate_x)
+            for node_id in sorted(
+                (node_id for node_id in level_nodes if not connection_count[node_id]),
+                key=lambda node_id: node_order[node_id],
+            ):
+                if available_slots:
                     candidate_x = min(available_slots)
+                else:
+                    candidate_x = max(
+                        position.x() for position in pos_map.values()
+                    ) + W + 40
+                    available_slots.append(candidate_x)
                 pos_map[node_id] = QPointF(candidate_x, level_y[level])
                 available_slots.remove(candidate_x)
 
@@ -790,7 +895,7 @@ class FlowchartViewer(QWidget):
                 destination_port_index[edge["target"]] = max(destination_port_index.get(edge["target"], 0), slot + 1)
         level_exit_index: Dict[int, int] = {}
         approach_index_by_level: Dict[int, int] = {}
-        used_track_x: set = set()
+        used_track_ranges: Dict[float, List[tuple]] = {}
         self.child_route_debug: List[Dict[str, object]] = []
 
         def port_offset(index: int) -> float:
@@ -814,7 +919,8 @@ class FlowchartViewer(QWidget):
                 path = QPainterPath()
                 path.moveTo(p1)
                 path.lineTo(p2)
-                self._paint(path, color)
+                connector_item = self._paint(path, color)
+                self._register_connector(source_id, connector_item, color)
                 self._arrow(p2, "down", color)
                 label_step = (port_slot + 2) // 2
                 label_y = (-12 if port_slot % 2 == 0 else 12) * label_step
@@ -863,7 +969,8 @@ class FlowchartViewer(QWidget):
                 path.moveTo(p1)
                 path.lineTo(p2)
                 path.lineTo(p3)
-                self._paint(path, color)
+                connector_item = self._paint(path, color)
+                self._register_connector(source_id, connector_item, color)
                 direction = "right" if target_is_right else "left"
                 self._arrow(p3, direction, color)
                 self._label(str(edge["label"]), QPointF(p1.x() + 18, p1.y() + 12), color)
@@ -886,23 +993,59 @@ class FlowchartViewer(QWidget):
             approach_y = target_pos.y() - 12 - approach_index * 10
 
             def track_is_clear(track_x: float) -> bool:
-                if track_x in used_track_x:
-                    return False
                 vertical_top = min(p2.y(), approach_y)
                 vertical_bottom = max(p2.y(), approach_y)
-                return not any(
+                if any(
                     other_id not in {source_id, target_id}
                     and pos_map[other_id].x() - 10 <= track_x <= pos_map[other_id].x() + W + 10
                     and pos_map[other_id].y() - 10 <= vertical_bottom
                     and pos_map[other_id].y() + H + 10 >= vertical_top
                     for other_id in ordered_ids
+                ):
+                    return False
+                return all(
+                    vertical_bottom + 10 <= reserved_top or vertical_top - 10 >= reserved_bottom
+                    for reserved_top, reserved_bottom in used_track_ranges.get(track_x, [])
                 )
 
+            if target_pos.x() > source_pos.x():
+                internal_candidates = [
+                    candidate for candidate in track_candidates
+                    if source_pos.x() + W + 10 <= candidate <= target_pos.x() - 10
+                ]
+                fallback_candidates = [
+                    candidate for candidate in track_candidates
+                    if candidate >= target_pos.x() + W + 10
+                ]
+            elif target_pos.x() < source_pos.x():
+                internal_candidates = [
+                    candidate for candidate in track_candidates
+                    if target_pos.x() + W + 10 <= candidate <= source_pos.x() - 10
+                ]
+                fallback_candidates = [
+                    candidate for candidate in track_candidates
+                    if candidate <= target_pos.x() - 10
+                ]
+            else:
+                internal_candidates = []
+                fallback_candidates = [
+                    candidate for candidate in track_candidates
+                    if candidate >= source_pos.x() + W + 10
+                ]
+            directional_candidates = [
+                candidate for candidate in internal_candidates if track_is_clear(candidate)
+            ]
+            if not directional_candidates:
+                directional_candidates = [
+                    candidate for candidate in fallback_candidates if track_is_clear(candidate)
+                ]
             track_x = min(
-                (candidate for candidate in track_candidates if track_is_clear(candidate)),
+                directional_candidates,
                 key=lambda candidate: abs(p2.x() - candidate) + abs(candidate - (target_pos.x() + W / 2)),
             )
-            used_track_x.add(track_x)
+            used_track_ranges.setdefault(track_x, []).append(
+                (min(p2.y(), approach_y), max(p2.y(), approach_y))
+            )
             p3 = QPointF(track_x, p2.y())
             p4 = QPointF(track_x, approach_y)
             p5 = QPointF(target_pos.x() + W / 2 + port_offset(target_slot), p4.y())
@@ -913,7 +1056,8 @@ class FlowchartViewer(QWidget):
             for point in (p2, p3, p4, p5, p6):
                 path.lineTo(point)
             color = COL_NORMAL if edge["normal"] else COL_EXCEP
-            self._paint(path, color)
+            connector_item = self._paint(path, color)
+            self._register_connector(source_id, connector_item, color)
             self._arrow(p6, "down", color)
             self._label(str(edge["label"]), QPointF(p2.x() + 18, p2.y() - 13), color)
             self.child_route_debug.append({
@@ -932,8 +1076,10 @@ class FlowchartViewer(QWidget):
     def handle_node_click(self, item: GraphicsNodeItem):
         if self.selected_item:
             self.selected_item.set_node_selected(False)
+        self._clear_connector_highlight()
         self.selected_item = item
         item.set_node_selected(True)
+        self._highlight_outgoing_connectors(item.node.id)
         self.node_selected.emit(item.node)
 
     def handle_node_double_click(self, item: GraphicsNodeItem):
@@ -1136,6 +1282,22 @@ class FlowchartViewer(QWidget):
         item.setZValue(0)
         item.setPen(QPen(color, 2))
         self.scene.addItem(item)
+        return item
+
+    def _register_connector(self, source_id: str, item: QGraphicsPathItem, color: QColor):
+        self.connector_items_by_source.setdefault(source_id, []).append((item, color))
+
+    def _clear_connector_highlight(self):
+        for item, color in self.highlighted_connector_items:
+            item.setPen(QPen(color, 2))
+            item.setZValue(0)
+        self.highlighted_connector_items.clear()
+
+    def _highlight_outgoing_connectors(self, source_id: str):
+        for item, color in self.connector_items_by_source.get(source_id, []):
+            item.setPen(QPen(color.lighter(125), 4))
+            item.setZValue(1)
+            self.highlighted_connector_items.append((item, color))
 
     def _label(self, text: str, pos: QPointF, color: QColor):
         text = text.strip()
