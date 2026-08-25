@@ -153,6 +153,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
             self._close_child_scope()
             return
 
+        child_was_visible = self.child_flow_viewer.isVisible()
         curr_node, curr_prefix = self.child_scope_stack[-1]
         scope_name = f"Child Scope: {curr_prefix} - {curr_node.name}"
         
@@ -166,8 +167,10 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         else:
             self.child_flow_viewer.btn_close.setText("Close Child Scope")
 
-        # Adjust vertical splitter
-        self.left_splitter.setSizes([450, 450])
+        # Use a balanced default only when opening the child pane. Subsequent
+        # compound navigation keeps the user's manually adjusted pane ratio.
+        if not child_was_visible:
+            self.left_splitter.setSizes([450, 450])
 
         # Enforce horizontal splitter ratio (Left: 60%, Right: 40%)
         total_w = self.main_splitter.width()
