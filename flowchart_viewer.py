@@ -649,6 +649,16 @@ class FlowchartViewer(QWidget):
         for level, node_id in enumerate(primary_node_order):
             rank[node_id] = level
 
+        # Keep auxiliary targets below every source that reaches them. The
+        # ordered list is topological for acyclic edges, so one forward pass
+        # prevents cross-column connectors from travelling upward. Main-flow
+        # levels remain fixed by the rule above.
+        for source_id in ordered_ids:
+            for edge in outgoing[source_id]:
+                target_id = edge["target"]
+                if target_id not in primary_node_ids:
+                    rank[target_id] = max(rank[target_id], rank[source_id] + 1)
+
         # Tree children continue the parent lane for their selected normal
         # parent edge; branches receive a new lane at the same depth.
         lane_by_id: Dict[str, int] = {}
