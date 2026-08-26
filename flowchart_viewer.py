@@ -80,7 +80,10 @@ class GraphicsNodeItem(QGraphicsRectItem):
 
         prefix  = f"[{'+' if self.node.child_actions else ''}] " if self.node.child_actions else ""
         step_id = f"{self.scope_prefix}:{self.node.id}" if self.scope_prefix else self.node.id
-        title   = f"{prefix}{step_id}: {self.node.name}"
+        title = f"{prefix}{step_id}: {self.node.name}"
+        value_parts = self._timing_values()
+        if value_parts:
+            title += "\n" + " | ".join(value_parts)
 
         self.text_item = QGraphicsTextItem(title, self)
         self.text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -91,6 +94,28 @@ class GraphicsNodeItem(QGraphicsRectItem):
             (self.NODE_WIDTH  - tr.width())  / 2,
             (self.NODE_HEIGHT - tr.height()) / 2
         )
+
+    def _timing_values(self) -> List[str]:
+        timeout_value = ""
+        duration_value = ""
+        for parameter in self.node.parameters:
+            for element in parameter.iter():
+                element_name = element.tag.split("}")[-1].lower()
+                if element_name == "timeout":
+                    for child in element.iter():
+                        child_name = child.tag.split("}")[-1].lower()
+                        if child_name in {"value-", "valuemodify-"} and (child.text or "").strip():
+                            timeout_value = (child.text or "").strip()
+                            break
+                elif element_name == "duration" and (element.text or "").strip():
+                    duration_value = (element.text or "").strip()
+
+        values = []
+        if timeout_value:
+            values.append(f"Timeout: {timeout_value}")
+        if duration_value:
+            values.append(f"Duration: {duration_value}")
+        return values
 
     def set_node_selected(self, selected: bool):
         self.is_selected_node = selected
