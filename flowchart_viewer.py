@@ -884,7 +884,9 @@ class FlowchartViewer(QWidget):
         for edge in sorted(edges, key=edge_key):
             source_id, target_id = edge["source"], edge["target"]
             source_pos, target_pos = pos_map[source_id], pos_map[target_id]
-            if target_pos.y() <= source_pos.y() or abs(source_pos.x() - target_pos.x()) >= 1:
+            x_alignment_tolerance = (W / 2 - 10) if self.use_display_layout else 1
+            same_column = abs(source_pos.x() - target_pos.x()) <= x_alignment_tolerance
+            if target_pos.y() <= source_pos.y() or not same_column:
                 continue
             is_clear = not any(
                 other_id not in {source_id, target_id}
@@ -910,17 +912,30 @@ class FlowchartViewer(QWidget):
 
         min_left = min(position.x() for position in pos_map.values())
         max_right = max(position.x() + W for position in pos_map.values())
-        column_x = sorted(set(lane_x.values()))
-        track_candidates: List[float] = []
-        for left_x, right_x in zip(column_x, column_x[1:]):
-            candidate_x = left_x + W + 20
-            while candidate_x <= right_x - 20:
-                track_candidates.append(candidate_x)
-                candidate_x += 10
-        track_candidates.extend(
-            [min_left - 20 - index * 10 for index in range(len(edges))] +
-            [max_right + 20 + index * 10 for index in range(len(edges))]
-        )
+        if self.use_display_layout:
+            # Original layout coordinates do not share the automatic lane_x
+            # grid. Search every visible 10px corridor and let obstacle checks
+            # select the nearest short route through the actual empty space.
+            track_candidates = [
+                min_left - 20 + index * 10
+                for index in range(int((max_right - min_left + 40) / 10) + 1)
+            ]
+            track_candidates.extend(
+                [min_left - 30 - index * 10 for index in range(len(edges))] +
+                [max_right + 30 + index * 10 for index in range(len(edges))]
+            )
+        else:
+            column_x = sorted(set(lane_x.values()))
+            track_candidates = []
+            for left_x, right_x in zip(column_x, column_x[1:]):
+                candidate_x = left_x + W + 20
+                while candidate_x <= right_x - 20:
+                    track_candidates.append(candidate_x)
+                    candidate_x += 10
+            track_candidates.extend(
+                [min_left - 20 - index * 10 for index in range(len(edges))] +
+                [max_right + 20 + index * 10 for index in range(len(edges))]
+            )
         edges.sort(
             key=lambda edge: (
                 node_order[edge["target"]],
@@ -937,8 +952,8 @@ class FlowchartViewer(QWidget):
                 source_port_index[edge["source"]] = max(source_port_index.get(edge["source"], 0), slot + 1)
                 destination_port_index[edge["target"]] = max(destination_port_index.get(edge["target"], 0), slot + 1)
         level_exit_index: Dict[int, int] = {}
-        approach_index_by_level: Dict[int, int] = {}
         used_track_ranges: Dict[float, List[tuple]] = {}
+        used_approach_segments: List[tuple] = []
         self.child_route_debug: List[Dict[str, object]] = []
 
         def port_offset(index: int) -> float:
@@ -956,8 +971,9 @@ class FlowchartViewer(QWidget):
             if edge["index"] in direct_edge_indices:
                 port_slot = direct_port_slot_by_edge[edge["index"]]
                 port_x = port_offset(port_slot)
-                p1 = QPointF(source_pos.x() + W / 2 + port_x, source_pos.y() + H)
-                p2 = QPointF(target_pos.x() + W / 2 + port_x, target_pos.y())
+                direct_x = target_pos.x() + W / 2 + port_x
+                p1 = QPointF(direct_x, source_pos.y() + H)
+                p2 = QPointF(direct_x, target_pos.y())
                 color = COL_NORMAL if edge["normal"] else COL_EXCEP
                 path = QPainterPath()
                 path.moveTo(p1)
@@ -981,59 +997,52 @@ class FlowchartViewer(QWidget):
             source_level = rank[source_id]
             target_level = rank[target_id]
 
-            # An adjacent lower-level destination can be reached with one bend:
-            # leave from the source bottom, then enter the target's near side.
-            # Reject it when another box occupies the target-row horizontal run.
-            horizontal_left = min(source_pos.x() + W / 2, target_pos.x() + W / 2)
-            horizontal_right = max(source_pos.x() + W / 2, target_pos.x() + W / 2)
-            target_row_is_clear = not any(
-                other_id != target_id
-                and rank[other_id] == target_level
-                and pos_map[other_id].x() < horizontal_right
-                and pos_map[other_id].x() + W > horizontal_left
-                for other_id in pos_map
-            )
-            if (
-                target_level == source_level + 1
-                and abs(target_pos.x() - source_pos.x()) > 10
-                and target_row_is_clear
-            ):
-                side_slot = destination_side_port_index.get(target_id, 0)
-                destination_side_port_index[target_id] = side_slot + 1
+            # In displayInformation mode, a clear vertical drop from the
+            # source is shorter than detouring through a distant lane. Route
+            # down at the source X, turn once just above the destination, and
+            # enter through the destination top.
+            if self.use_display_layout and target_pos.y() > source_pos.y():
                 source_center_x = source_pos.x() + W / 2 + port_offset(source_slot)
-                target_center_y = target_pos.y() + H / 2 + port_offset(side_slot)
-                target_is_right = target_pos.x() > source_pos.x()
-                target_side_x = target_pos.x() if target_is_right else target_pos.x() + W
-                p1 = QPointF(source_center_x, source_pos.y() + H)
-                p2 = QPointF(source_center_x, target_center_y)
-                p3 = QPointF(target_side_x, target_center_y)
-                color = COL_NORMAL if edge["normal"] else COL_EXCEP
-                path = QPainterPath()
-                path.moveTo(p1)
-                path.lineTo(p2)
-                path.lineTo(p3)
-                connector_item = self._paint(path, color)
-                self._register_connector(source_id, connector_item, color)
-                direction = "right" if target_is_right else "left"
-                self._arrow(p3, direction, color)
-                self._label(str(edge["label"]), QPointF(p1.x() + 18, p1.y() + 12), color)
-                self.child_route_debug.append({
-                    "edge_index": edge["index"],
-                    "tree_edge": edge["index"] in tree_edge_indices,
-                    "points": (p1, p2, p3),
-                })
-                continue
+                approach_y = target_pos.y() - 12
+                corridor_is_clear = not any(
+                    other_id not in {source_id, target_id}
+                    and pos_map[other_id].x() - 10 <= source_center_x <= pos_map[other_id].x() + W + 10
+                    and pos_map[other_id].y() - 10 < approach_y
+                    and pos_map[other_id].y() + H + 10 > source_pos.y() + H
+                    for other_id in pos_map
+                )
+                if corridor_is_clear:
+                    target_slot = destination_port_index.get(target_id, 0)
+                    destination_port_index[target_id] = target_slot + 1
+                    target_center_x = target_pos.x() + W / 2 + port_offset(target_slot)
+                    p1 = QPointF(source_center_x, source_pos.y() + H)
+                    p2 = QPointF(source_center_x, approach_y)
+                    p3 = QPointF(target_center_x, approach_y)
+                    p4 = QPointF(target_center_x, target_pos.y())
+                    color = COL_NORMAL if edge["normal"] else COL_EXCEP
+                    path = QPainterPath()
+                    path.moveTo(p1)
+                    for point in (p2, p3, p4):
+                        path.lineTo(point)
+                    connector_item = self._paint(path, color)
+                    self._register_connector(source_id, connector_item, color)
+                    self._arrow(p4, "down", color)
+                    self._label(str(edge["label"]), QPointF(p1.x() + 18, p1.y() + 12), color)
+                    self.child_route_debug.append({
+                        "edge_index": edge["index"],
+                        "tree_edge": edge["index"] in tree_edge_indices,
+                        "points": (p1, p2, p3, p4),
+                    })
+                    continue
 
             target_slot = destination_port_index.get(target_id, 0)
             destination_port_index[target_id] = target_slot + 1
             exit_index = level_exit_index.get(source_level, 0)
-            approach_index = approach_index_by_level.get(target_level, 0)
             level_exit_index[source_level] = exit_index + 1
-            approach_index_by_level[target_level] = approach_index + 1
 
             p1 = QPointF(source_pos.x() + W / 2 + port_offset(source_slot), source_pos.y() + H)
             p2 = QPointF(p1.x(), p1.y() + 12 + exit_index * 10)
-            approach_y = target_pos.y() - 12 - approach_index * 10
+            approach_y = target_pos.y() - 12
 
             def track_is_clear(track_x: float) -> bool:
                 vertical_top = min(p2.y(), approach_y)
@@ -1082,12 +1091,41 @@ class FlowchartViewer(QWidget):
                 directional_candidates = [
                     candidate for candidate in fallback_candidates if track_is_clear(candidate)
                 ]
-            track_x = min(
-                directional_candidates,
-                key=lambda candidate: abs(p2.x() - candidate) + abs(candidate - (target_pos.x() + W / 2)),
-            )
+            if self.use_display_layout:
+                # In original-coordinate mode, choose the actual shortest
+                # orthogonal route through the visible free space rather than
+                # retaining any automatic-column preference.
+                track_x = min(
+                    directional_candidates,
+                    key=lambda candidate: (
+                        abs(p2.x() - candidate)
+                        + abs(candidate - (target_pos.x() + W / 2))
+                        + abs(p2.y() - approach_y)
+                    ),
+                )
+            else:
+                track_x = min(
+                    directional_candidates,
+                    key=lambda candidate: abs(p2.x() - candidate) + abs(candidate - (target_pos.x() + W / 2)),
+                )
+
+            def approach_is_clear(candidate_y: float) -> bool:
+                approach_left = min(track_x, target_pos.x() + W / 2)
+                approach_right = max(track_x, target_pos.x() + W / 2)
+                return not any(
+                    abs(candidate_y - used_y) < 10
+                    and approach_left <= max(used_left, used_right)
+                    and approach_right >= min(used_left, used_right)
+                    for used_y, used_left, used_right in used_approach_segments
+                )
+
+            while not approach_is_clear(approach_y):
+                approach_y -= 10
             used_track_ranges.setdefault(track_x, []).append(
                 (min(p2.y(), approach_y), max(p2.y(), approach_y))
+            )
+            used_approach_segments.append(
+                (approach_y, track_x, target_pos.x() + W / 2)
             )
             p3 = QPointF(track_x, p2.y())
             p4 = QPointF(track_x, approach_y)
