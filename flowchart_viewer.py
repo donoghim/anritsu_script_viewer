@@ -954,6 +954,7 @@ class FlowchartViewer(QWidget):
         level_exit_index: Dict[int, int] = {}
         used_track_ranges: Dict[float, List[tuple]] = {}
         used_approach_segments: List[tuple] = []
+        used_approach_y_by_level: Dict[int, List[float]] = {}
         self.child_route_debug: List[Dict[str, object]] = []
 
         def port_offset(index: int) -> float:
@@ -1012,6 +1013,10 @@ class FlowchartViewer(QWidget):
                     for other_id in pos_map
                 )
                 if corridor_is_clear:
+                    level_approach_y = used_approach_y_by_level.setdefault(target_level, [])
+                    while any(abs(approach_y - used_y) < 5 for used_y in level_approach_y):
+                        approach_y -= 5
+                    level_approach_y.append(approach_y)
                     target_slot = destination_port_index.get(target_id, 0)
                     destination_port_index[target_id] = target_slot + 1
                     target_center_x = target_pos.x() + W / 2 + port_offset(target_slot)
@@ -1112,15 +1117,18 @@ class FlowchartViewer(QWidget):
             def approach_is_clear(candidate_y: float) -> bool:
                 approach_left = min(track_x, target_pos.x() + W / 2)
                 approach_right = max(track_x, target_pos.x() + W / 2)
+                if any(abs(candidate_y - used_y) < 5 for used_y in used_approach_y_by_level.get(target_level, [])):
+                    return False
                 return not any(
-                    abs(candidate_y - used_y) < 10
+                    abs(candidate_y - used_y) < 5
                     and approach_left <= max(used_left, used_right)
                     and approach_right >= min(used_left, used_right)
                     for used_y, used_left, used_right in used_approach_segments
                 )
 
             while not approach_is_clear(approach_y):
-                approach_y -= 10
+                approach_y -= 5
+            used_approach_y_by_level.setdefault(target_level, []).append(approach_y)
             used_track_ranges.setdefault(track_x, []).append(
                 (min(p2.y(), approach_y), max(p2.y(), approach_y))
             )
