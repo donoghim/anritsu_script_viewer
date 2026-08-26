@@ -160,6 +160,11 @@ class FlowchartViewer(QWidget):
         self.lbl_title.setFont(QFont("Malgun Gothic", 9, QFont.Weight.Bold))
         hdr.addWidget(self.lbl_title)
 
+        self.btn_center_selected = QPushButton("Center Selected")
+        self.btn_center_selected.setVisible(self.title_str.startswith("Main Scope"))
+        self.btn_center_selected.clicked.connect(self.center_selected_node)
+        hdr.addWidget(self.btn_center_selected, alignment=Qt.AlignmentFlag.AlignRight)
+
         self.btn_close = QPushButton("Close Child Scope")
         self.btn_close.setVisible(False)
         hdr.addWidget(self.btn_close, alignment=Qt.AlignmentFlag.AlignRight)
@@ -1190,6 +1195,10 @@ class FlowchartViewer(QWidget):
     def handle_node_double_click(self, item: GraphicsNodeItem):
         if item.node.child_actions:
             self.compound_selected.emit(item.node)
+
+    def center_selected_node(self):
+        if self.selected_item:
+            self.view.centerOn(self.selected_item)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Connector A: Straight vertical ↓  (green — OK / Logged / Assigned / …)
