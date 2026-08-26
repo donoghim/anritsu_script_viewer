@@ -20,6 +20,7 @@ COLOR_COMPOUND    = QColor(254, 218, 218)
 COLOR_TERMINATOR  = QColor(218, 254, 218)
 COLOR_WAIT_EVENT  = QColor(255, 240, 150)
 COLOR_LOG_MESSAGE = QColor(255, 255, 255)
+COLOR_CONDITIONAL_BRANCH = QColor(224, 204, 239)
 
 BORDER_START      = QColor(130, 130, 130)
 BORDER_PROCEDURE  = QColor(60, 120, 210)
@@ -73,6 +74,8 @@ class GraphicsNodeItem(QGraphicsRectItem):
             self.fill_color, self.border_color = COLOR_TERMINATOR, BORDER_TERMINATOR
         elif name_lower == "logmessage":
             self.fill_color, self.border_color = COLOR_LOG_MESSAGE, BORDER_PROCEDURE
+        elif self.node.action_type == "CONDITIONAL_BRANCH":
+            self.fill_color, self.border_color = COLOR_CONDITIONAL_BRANCH, QColor(130, 70, 170)
         elif any(k in name_lower for k in ("wait", "timer", "event", "mmi")):
             self.fill_color, self.border_color = COLOR_WAIT_EVENT, BORDER_WAIT_EVENT
         else:
@@ -87,6 +90,9 @@ class GraphicsNodeItem(QGraphicsRectItem):
         if self.viewer is None or self.viewer.show_detail:
             value_parts = self._timing_values()
             display_name = self._display_name_value()
+            condition = self._condition_value()
+            if condition:
+                value_parts.insert(0, f"Condition: {condition}")
             if display_name:
                 value_parts.insert(0, f"DisplayName: {display_name}")
             if value_parts:
@@ -128,6 +134,15 @@ class GraphicsNodeItem(QGraphicsRectItem):
         for parameter in self.node.parameters:
             for element in parameter.iter():
                 if element.tag.split("}")[-1].lower() == "displayname":
+                    return (element.text or "").strip()
+        return ""
+
+    def _condition_value(self) -> str:
+        if self.node.action_type != "CONDITIONAL_BRANCH":
+            return ""
+        for parameter in self.node.parameters:
+            for element in parameter.iter():
+                if element.tag.split("}")[-1].lower() == "conditionalexpression":
                     return (element.text or "").strip()
         return ""
 
