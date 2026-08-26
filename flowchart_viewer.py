@@ -857,24 +857,23 @@ class FlowchartViewer(QWidget):
             if laid_out_nodes:
                 min_x = min(node.layout_info["x"] for node in laid_out_nodes)
                 min_y = min(node.layout_info["y"] for node in laid_out_nodes)
-                for node in laid_out_nodes:
-                    pos_map[node.id] = QPointF(
-                        100 + node.layout_info["x"] - min_x,
-                        40 + node.layout_info["y"] - min_y,
-                    )
-            for node_id in sorted(
-                (node_id for node_id in level_nodes if not connection_count[node_id]),
-                key=lambda node_id: node_order[node_id],
-            ):
-                if available_slots:
-                    candidate_x = min(available_slots)
-                else:
-                    candidate_x = max(
-                        position.x() for position in pos_map.values()
-                    ) + W + 40
-                    available_slots.append(candidate_x)
-                pos_map[node_id] = QPointF(candidate_x, level_y[level])
-                available_slots.remove(candidate_x)
+                placed_layout_nodes: List[str] = []
+                for node in sorted(
+                    laid_out_nodes,
+                    key=lambda item: (item.layout_info["y"], item.layout_info["x"], node_order[item.id]),
+                ):
+                    target_x = 100 + node.layout_info["x"] - min_x
+                    target_y = 40 + node.layout_info["y"] - min_y
+                    while any(
+                        target_y < pos_map[other_id].y() + H + 20
+                        and target_y + H + 20 > pos_map[other_id].y()
+                        and target_x < pos_map[other_id].x() + W + 20
+                        and target_x + W + 20 > pos_map[other_id].x()
+                        for other_id in placed_layout_nodes
+                    ):
+                        target_x += W + 20
+                    pos_map[node.id] = QPointF(target_x, target_y)
+                    placed_layout_nodes.append(node.id)
 
         # Any unobstructed same-column downward edge is shorter as a direct
         # vertical route. Parallel edges receive separate 10px port slots.
