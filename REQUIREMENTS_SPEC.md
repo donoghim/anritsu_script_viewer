@@ -223,7 +223,7 @@
 - **Timing 값 2행 표시**: action parameter 내부의 `Timeout/value-`와 `duration` 값을 박스 레이블의 두 번째 행에 표시한다. 두 값이 모두 있으면 `Timeout: 값 | Duration: 값` 형식으로 함께 표시하고, 값이 없는 경우 기존 한 줄 레이블을 유지한다.
 - **Show Detail 토글**: 파라미터 패널의 네 번째 토글 버튼 이름은 `Show Detail`로 한다. ON이면 박스 레이블의 2행(`DisplayName`, `Timeout`, `Duration`)을 표시하고, OFF이면 1행의 action 이름만 표시한다. 토글은 메인창과 하단 서브창에 동시에 적용한다.
 - **LogMessage 표시**: `LogMessage` 박스는 흰색 배경으로 표시하고, parameter 내부 `DisplayName`의 텍스트 값을 레이블 2행에 `DisplayName: 값` 형식으로 표시한다.
-- **Conditional Branch 표시**: `CONDITIONAL_BRANCH` action 박스는 자주색 배경과 진한 자주색 테두리로 표시하고, parameter 내부 `ConditionalExpression`의 조건식을 레이블 2행에 `Condition: 값` 형식으로 표시한다.
+- **Conditional Branch 표시**: `CONDITIONAL_BRANCH` action 박스는 자주색 배경과 진한 자주색 테두리로 표시하고, parameter 내부 `ConditionalExpression` 또는 `ControlVariable`의 조건 정보를 레이블 2행에 `Condition: 값` 형식으로 표시한다. `ControlVariable` 형식은 하위 변수명과 값을 `변수명=값`으로 조합한다.
 - **최단 접근 높이 우선**: 전용 레인 연결은 목적지 바로 위 `12px` 접근 높이를 먼저 사용한다. 수평 접근 구간이 실제로 겹칠 때만 `10px`씩 위로 이동하며, 서로 무관한 목적지라는 이유만으로 접근선을 먼 위쪽으로 밀지 않는다.
 - **2차 포트·라우팅 최적화**: 1차 트리/레벨 배치 뒤 stream lane 배치는 유지한 채, 실제 연결 맵을 다시 평가한다. 직선으로 가능한 연결을 먼저 포트에 배정하고 나머지 연결만 최소 굴절 경로로 재라우팅한다. 전용 레인 점유와 박스 안전 여백을 계산하지 않는 단순 박스 위치 교환은 허용하지 않는다.
 - **렌더링 순서**: `연결 맵 → 트리/레벨 배치 → 직선 포트 우선 배정 → 최소 굴절 라우팅 → 렌더링` 순서를 유지한다.
@@ -301,3 +301,4 @@
 - **v1.31.35 (2026-08-26)**: LogMessage 박스의 배경을 흰색으로 변경하고 `DisplayName` 값을 레이블 2행에 표시하도록 했다.
 - **v1.31.36 (2026-08-26)**: 네 번째 `Show Detail` 토글을 추가해 박스 2행 상세 정보의 표시·숨김을 제어하도록 했다.
 - **v1.31.37 (2026-08-26)**: Conditional Branch 박스를 자주색으로 구분하고 `ConditionalExpression` 조건식을 레이블 2행에 표시하도록 했다.
+- **v1.31.38 (2026-08-26)**: Conditional Branch의 `ControlVariable` 형식도 지원해 변수명과 값을 2행 조건 정보로 표시하도록 했다.

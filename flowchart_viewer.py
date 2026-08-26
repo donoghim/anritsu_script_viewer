@@ -144,6 +144,17 @@ class GraphicsNodeItem(QGraphicsRectItem):
             for element in parameter.iter():
                 if element.tag.split("}")[-1].lower() == "conditionalexpression":
                     return (element.text or "").strip()
+                if element.tag.split("}")[-1].lower() == "controlvariable":
+                    values = []
+                    for child in element.iter():
+                        if child is element:
+                            continue
+                        child_name = child.tag.split("}")[-1]
+                        child_value = (child.text or "").strip()
+                        if child_value and child_name.lower() not in {"value", "value-"}:
+                            values.append(f"{child_name}={child_value}")
+                    if values:
+                        return ", ".join(values)
         return ""
 
     def set_node_selected(self, selected: bool):
