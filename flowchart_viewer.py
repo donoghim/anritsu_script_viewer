@@ -945,10 +945,14 @@ class FlowchartViewer(QWidget):
         )
         source_port_index: Dict[str, int] = {}
         destination_port_index: Dict[str, int] = {}
+        source_port_slots: Dict[str, set] = {}
+        destination_port_slots: Dict[str, set] = {}
         destination_side_port_index: Dict[str, int] = {}
         for edge in edges:
             if edge["index"] in direct_edge_indices:
                 slot = direct_port_slot_by_edge[edge["index"]]
+                source_port_slots.setdefault(edge["source"], set()).add(slot)
+                destination_port_slots.setdefault(edge["target"], set()).add(slot)
                 source_port_index[edge["source"]] = max(source_port_index.get(edge["source"], 0), slot + 1)
                 destination_port_index[edge["target"]] = max(destination_port_index.get(edge["target"], 0), slot + 1)
         level_exit_index: Dict[int, int] = {}
@@ -992,7 +996,11 @@ class FlowchartViewer(QWidget):
                 })
                 continue
 
+            used_source_slots = source_port_slots.setdefault(source_id, set())
             source_slot = source_port_index.get(source_id, 0)
+            while source_slot in used_source_slots:
+                source_slot += 1
+            used_source_slots.add(source_slot)
             source_port_index[source_id] = source_slot + 1
 
             source_level = rank[source_id]
@@ -1017,7 +1025,11 @@ class FlowchartViewer(QWidget):
                     while any(abs(approach_y - used_y) < 5 for used_y in level_approach_y):
                         approach_y -= 5
                     level_approach_y.append(approach_y)
+                    used_target_slots = destination_port_slots.setdefault(target_id, set())
                     target_slot = destination_port_index.get(target_id, 0)
+                    while target_slot in used_target_slots:
+                        target_slot += 1
+                    used_target_slots.add(target_slot)
                     destination_port_index[target_id] = target_slot + 1
                     target_center_x = target_pos.x() + W / 2 + port_offset(target_slot)
                     p1 = QPointF(source_center_x, source_pos.y() + H)
@@ -1040,7 +1052,11 @@ class FlowchartViewer(QWidget):
                     })
                     continue
 
+            used_target_slots = destination_port_slots.setdefault(target_id, set())
             target_slot = destination_port_index.get(target_id, 0)
+            while target_slot in used_target_slots:
+                target_slot += 1
+            used_target_slots.add(target_slot)
             destination_port_index[target_id] = target_slot + 1
             exit_index = level_exit_index.get(source_level, 0)
             level_exit_index[source_level] = exit_index + 1
