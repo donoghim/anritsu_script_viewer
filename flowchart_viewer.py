@@ -145,6 +145,7 @@ class FlowchartViewer(QWidget):
         self.current_scope_prefix = "root"
         self.node_items: Dict[str, GraphicsNodeItem] = {}
         self.selected_item: Optional[GraphicsNodeItem] = None
+        self.use_display_layout = False
         self.connector_items_by_source: Dict[str, List[tuple]] = {}
         self.highlighted_connector_items: List[tuple] = []
         self._init_ui()
@@ -190,6 +191,10 @@ class FlowchartViewer(QWidget):
         # Root and child scopes use the same graph-first layout so branch
         # targets stay below their sources in both views.
         self._set_child_scope(nodes, scope_prefix)
+        return
+
+    def set_use_display_layout(self, enabled: bool):
+        self.use_display_layout = enabled
         return
 
         node_id_map: Dict[str, AnritsuNode] = {n.id: n for n in nodes}
@@ -846,6 +851,17 @@ class FlowchartViewer(QWidget):
                     available_slots.append(candidate_x)
                 pos_map[node_id] = QPointF(candidate_x, level_y[level])
                 available_slots.remove(candidate_x)
+
+        if self.use_display_layout:
+            laid_out_nodes = [node for node in nodes if node.layout_info]
+            if laid_out_nodes:
+                min_x = min(node.layout_info["x"] for node in laid_out_nodes)
+                min_y = min(node.layout_info["y"] for node in laid_out_nodes)
+                for node in laid_out_nodes:
+                    pos_map[node.id] = QPointF(
+                        100 + node.layout_info["x"] - min_x,
+                        40 + node.layout_info["y"] - min_y,
+                    )
             for node_id in sorted(
                 (node_id for node_id in level_nodes if not connection_count[node_id]),
                 key=lambda node_id: node_order[node_id],
@@ -876,7 +892,7 @@ class FlowchartViewer(QWidget):
                 and pos_map[other_id].x() - 10 <= source_pos.x() + W / 2 <= pos_map[other_id].x() + W + 10
                 and pos_map[other_id].y() - 10 < target_pos.y()
                 and pos_map[other_id].y() + H + 10 > source_pos.y() + H
-                for other_id in ordered_ids
+                for other_id in pos_map
             )
             if not is_clear:
                 continue
@@ -887,7 +903,7 @@ class FlowchartViewer(QWidget):
             direct_port_slot_by_edge[edge["index"]] = slot
             source_slots.add(slot)
             target_slots.add(slot)
-        for node_id in ordered_ids:
+        for node_id in pos_map:
             item = GraphicsNodeItem(node_map[node_id], scope_prefix, viewer=self)
             item.setPos(pos_map[node_id])
             self.scene.addItem(item)
@@ -976,7 +992,7 @@ class FlowchartViewer(QWidget):
                 and rank[other_id] == target_level
                 and pos_map[other_id].x() < horizontal_right
                 and pos_map[other_id].x() + W > horizontal_left
-                for other_id in ordered_ids
+                for other_id in pos_map
             )
             if (
                 target_level == source_level + 1
@@ -1028,7 +1044,7 @@ class FlowchartViewer(QWidget):
                     and pos_map[other_id].x() - 10 <= track_x <= pos_map[other_id].x() + W + 10
                     and pos_map[other_id].y() - 10 <= vertical_bottom
                     and pos_map[other_id].y() + H + 10 >= vertical_top
-                    for other_id in ordered_ids
+                    for other_id in pos_map
                 ):
                     return False
                 return all(

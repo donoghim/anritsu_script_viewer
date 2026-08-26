@@ -4,13 +4,15 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QTreeWidget, QTreeWidgetItem, QGroupBox, QTextEdit, QHeaderView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from anritsu_parser import AnritsuNode
 
 class ParameterTreeWidget(QWidget):
     """Widget for displaying Node Details, Parameter Tree, and Transitions/Conditions."""
+    display_layout_toggled = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_ui()
@@ -52,10 +54,13 @@ class ParameterTreeWidget(QWidget):
 
         self.btn_expand = QPushButton("Expand All")
         self.btn_collapse = QPushButton("Collapse All")
-        self.btn_show_sel = QPushButton("Show Selected Parameter")
+        self.btn_show_sel = QPushButton("Use displayInformation Layout")
+        self.btn_show_sel.setCheckable(True)
+        self.btn_show_sel.setToolTip("Render action boxes using the scenario displayInformation coordinates")
 
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_collapse.clicked.connect(self.collapse_all)
+        self.btn_show_sel.toggled.connect(self.display_layout_toggled)
 
         btn_layout.addWidget(self.btn_expand)
         btn_layout.addWidget(self.btn_collapse)

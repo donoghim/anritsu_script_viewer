@@ -87,17 +87,25 @@ def parse_action_element(elem: ET.Element) -> AnritsuNode:
             node.child_actions.append(child_node)
             node.child_id_map[child_node.id] = child_node
             
-    # Parse layout information if present
+    # A compound action owns the display coordinates for its direct child
+    # actions. Read that map after parsing children, then attach each entry to
+    # the matching child node for the viewer's displayInformation mode.
     disp_info = elem.find("./displayInformation/layoutInformation")
     if disp_info is not None:
+        layout_by_id: Dict[str, Dict[str, int]] = {}
         for a_tag in disp_info.findall("a"):
-            if a_tag.attrib.get("id") == node_id:
-                node.layout_info = {
-                    'x': int(a_tag.attrib.get("x", 0)),
-                    'y': int(a_tag.attrib.get("y", 0)),
-                    'row': int(a_tag.attrib.get("row", 0))
-                }
-                break
+            layout_id = a_tag.attrib.get("id", "")
+            layout_by_id[layout_id] = {
+                'x': int(a_tag.attrib.get("x", 0)),
+                'y': int(a_tag.attrib.get("y", 0)),
+                'row': int(a_tag.attrib.get("row", 0))
+            }
+
+        if node_id in layout_by_id:
+            node.layout_info = layout_by_id[node_id]
+        for child_node in node.child_actions:
+            if child_node.id in layout_by_id:
+                child_node.layout_info = layout_by_id[child_node.id]
 
     return node
 
