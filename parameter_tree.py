@@ -12,6 +12,7 @@ from anritsu_parser import AnritsuNode
 class ParameterTreeWidget(QWidget):
     """Widget for displaying Node Details, Parameter Tree, and Transitions/Conditions."""
     display_layout_toggled = pyqtSignal(bool)
+    detail_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -57,14 +58,20 @@ class ParameterTreeWidget(QWidget):
         self.btn_show_sel = QPushButton("Use displayInformation Layout")
         self.btn_show_sel.setCheckable(True)
         self.btn_show_sel.setToolTip("Render action boxes using the scenario displayInformation coordinates")
+        self.btn_show_detail = QPushButton("Show Detail")
+        self.btn_show_detail.setCheckable(True)
+        self.btn_show_detail.setChecked(True)
+        self.btn_show_detail.setToolTip("Show or hide second-line box details")
 
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_collapse.clicked.connect(self.collapse_all)
         self.btn_show_sel.toggled.connect(self.display_layout_toggled)
+        self.btn_show_detail.toggled.connect(self.detail_toggled)
 
         btn_layout.addWidget(self.btn_expand)
         btn_layout.addWidget(self.btn_collapse)
         btn_layout.addWidget(self.btn_show_sel)
+        btn_layout.addWidget(self.btn_show_detail)
 
         layout.addLayout(btn_layout)
 

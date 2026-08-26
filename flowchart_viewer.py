@@ -19,6 +19,7 @@ COLOR_PROCEDURE   = QColor(218, 234, 254)
 COLOR_COMPOUND    = QColor(254, 218, 218)
 COLOR_TERMINATOR  = QColor(218, 254, 218)
 COLOR_WAIT_EVENT  = QColor(255, 240, 150)
+COLOR_LOG_MESSAGE = QColor(255, 255, 255)
 
 BORDER_START      = QColor(130, 130, 130)
 BORDER_PROCEDURE  = QColor(60, 120, 210)
@@ -70,6 +71,8 @@ class GraphicsNodeItem(QGraphicsRectItem):
             self.fill_color, self.border_color = COLOR_COMPOUND, BORDER_COMPOUND
         elif "terminator" in name_lower or self.node.action_type == "END":
             self.fill_color, self.border_color = COLOR_TERMINATOR, BORDER_TERMINATOR
+        elif name_lower == "logmessage":
+            self.fill_color, self.border_color = COLOR_LOG_MESSAGE, BORDER_PROCEDURE
         elif any(k in name_lower for k in ("wait", "timer", "event", "mmi")):
             self.fill_color, self.border_color = COLOR_WAIT_EVENT, BORDER_WAIT_EVENT
         else:
@@ -81,9 +84,13 @@ class GraphicsNodeItem(QGraphicsRectItem):
         prefix  = f"[{'+' if self.node.child_actions else ''}] " if self.node.child_actions else ""
         step_id = f"{self.scope_prefix}:{self.node.id}" if self.scope_prefix else self.node.id
         title = f"{prefix}{step_id}: {self.node.name}"
-        value_parts = self._timing_values()
-        if value_parts:
-            title += "\n" + " | ".join(value_parts)
+        if self.viewer is None or self.viewer.show_detail:
+            value_parts = self._timing_values()
+            display_name = self._display_name_value()
+            if display_name:
+                value_parts.insert(0, f"DisplayName: {display_name}")
+            if value_parts:
+                title += "\n" + " | ".join(value_parts)
 
         self.text_item = QGraphicsTextItem(title, self)
         self.text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -116,6 +123,13 @@ class GraphicsNodeItem(QGraphicsRectItem):
         if duration_value:
             values.append(f"Duration: {duration_value}")
         return values
+
+    def _display_name_value(self) -> str:
+        for parameter in self.node.parameters:
+            for element in parameter.iter():
+                if element.tag.split("}")[-1].lower() == "displayname":
+                    return (element.text or "").strip()
+        return ""
 
     def set_node_selected(self, selected: bool):
         self.is_selected_node = selected
@@ -171,6 +185,7 @@ class FlowchartViewer(QWidget):
         self.node_items: Dict[str, GraphicsNodeItem] = {}
         self.selected_item: Optional[GraphicsNodeItem] = None
         self.use_display_layout = False
+        self.show_detail = True
         self.connector_items_by_source: Dict[str, List[tuple]] = {}
         self.highlighted_connector_items: List[tuple] = []
         self._init_ui()
@@ -225,6 +240,10 @@ class FlowchartViewer(QWidget):
 
     def set_use_display_layout(self, enabled: bool):
         self.use_display_layout = enabled
+        return
+
+    def set_show_detail(self, enabled: bool):
+        self.show_detail = enabled
         return
 
         node_id_map: Dict[str, AnritsuNode] = {n.id: n for n in nodes}
