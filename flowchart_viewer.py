@@ -117,7 +117,7 @@ class GraphicsNodeItem(QGraphicsRectItem):
                 if element_name == "timeout":
                     for child in element.iter():
                         child_name = child.tag.split("}")[-1].lower()
-                        if child_name in {"value-", "valuemodify-"} and (child.text or "").strip():
+                        if child_name in {"value-", "variable-", "valuemodify-"} and (child.text or "").strip():
                             timeout_value = (child.text or "").strip()
                             break
                 elif element_name == "duration" and (element.text or "").strip():

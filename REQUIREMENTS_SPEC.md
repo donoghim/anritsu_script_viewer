@@ -220,7 +220,7 @@
 - **병렬 결과 분리**: 같은 출발·도착의 병렬 결과는 출발·도착에서 대응되는 `10px` 포트 슬롯을 사용해 나란한 수직선으로 그린다. 라벨은 슬롯별로 중간 높이의 위·아래에 최소 `12px` 간격으로 교대 배치한다.
 - **입력 포트 접근 높이 분리**: 하나의 목적지에 입력 포트가 여러 개이면 목적지 바로 위의 최종 수평 접근 $Y$ 좌표를 입력 순서에 따라 약 `5px`씩 분리한다. 실제 수평 구간이 겹칠 때만 위쪽 슬롯을 사용해, 합류부 겹침과 불필요한 행 간격 증가를 함께 줄인다.
 - **동일 레벨 입력선 높이 분리**: 목적지가 서로 다른 박스여도 같은 레벨로 들어가는 입력 레인은 동일한 접근 $Y$ 좌표를 공유하지 않는다. 레벨 전체에서 `5px` 간격의 접근 슬롯을 순서대로 배정해, 수평 구간이 떨어져 있어도 시각적으로 겹쳐 보이는 문제를 방지한다.
-- **Timing 값 2행 표시**: action parameter 내부의 `Timeout/value-`와 `duration` 값을 박스 레이블의 두 번째 행에 표시한다. 두 값이 모두 있으면 `Timeout: 값 | Duration: 값` 형식으로 함께 표시하고, 값이 없는 경우 기존 한 줄 레이블을 유지한다.
+- **Timing 값 2행 표시**: action parameter 내부의 `Timeout/value-`, `Timeout/variable-`, `Timeout/valuemodify-`와 `duration` 값을 박스 레이블의 두 번째 행에 표시한다. 두 값이 모두 있으면 `Timeout: 값 | Duration: 값` 형식으로 함께 표시하고, 값이 없는 경우 기존 한 줄 레이블을 유지한다.
 - **Show Detail 토글**: 파라미터 패널의 네 번째 토글 버튼 이름은 `Show Detail`로 한다. ON이면 박스 레이블의 2행(`DisplayName`, `Timeout`, `Duration`)을 표시하고, OFF이면 1행의 action 이름만 표시한다. 토글은 메인창과 하단 서브창에 동시에 적용한다.
 - **LogMessage 표시**: `LogMessage` 박스는 흰색 배경으로 표시하고, parameter 내부 `DisplayName`의 텍스트 값을 레이블 2행에 `DisplayName: 값` 형식으로 표시한다.
 - **Conditional Branch 표시**: `CONDITIONAL_BRANCH` action 박스는 자주색 배경과 진한 자주색 테두리로 표시하고, parameter 내부 `ConditionalExpression` 또는 `ControlVariable`의 조건 정보를 레이블 2행에 `Condition: 값` 형식으로 표시한다. `ControlVariable` 형식은 하위 변수명과 값을 `변수명=값`으로 조합한다.
@@ -302,3 +302,4 @@
 - **v1.31.36 (2026-08-26)**: 네 번째 `Show Detail` 토글을 추가해 박스 2행 상세 정보의 표시·숨김을 제어하도록 했다.
 - **v1.31.37 (2026-08-26)**: Conditional Branch 박스를 자주색으로 구분하고 `ConditionalExpression` 조건식을 레이블 2행에 표시하도록 했다.
 - **v1.31.38 (2026-08-26)**: Conditional Branch의 `ControlVariable` 형식도 지원해 변수명과 값을 2행 조건 정보로 표시하도록 했다.
+- **v1.31.39 (2026-08-26)**: 변수 기반 `Timeout/variable-` 값도 박스 레이블 2행에 표시하도록 보완했다.
