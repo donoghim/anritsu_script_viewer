@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from anritsu_parser import AnritsuNode
+from version import VERSION
 
 class ParameterTreeWidget(QWidget):
     """Widget for displaying Node Details, Parameter Tree, and Transitions/Conditions."""
@@ -29,7 +30,7 @@ class ParameterTreeWidget(QWidget):
         info_layout.setContentsMargins(6, 6, 6, 6)
         info_layout.setSpacing(2)
 
-        self.lbl_version = QLabel("Version: v1.0.1")
+        self.lbl_version = QLabel(f"Version: v{VERSION}")
         self.lbl_file = QLabel("Current File: -")
         self.lbl_step = QLabel("Step: -")
         self.lbl_type = QLabel("Type: -")

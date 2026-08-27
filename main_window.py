@@ -10,9 +10,10 @@ from PyQt6.QtGui import QFont
 from anritsu_parser import parse_anritsu_test_file, AnritsuScenario, AnritsuNode
 from flowchart_viewer import FlowchartViewer
 from parameter_tree import ParameterTreeWidget
+from version import APP_NAME, VERSION
 
 class AnritsuScenarioViewerWindow(QMainWindow):
-    """Main Window for Anritsu STD Scenario Viewer v1.0.1 with Nested Child Scope Navigation."""
+    """Main window with nested child-scope navigation."""
     def __init__(self, default_file: Optional[str] = None):
         super().__init__()
         self.scenario: Optional[AnritsuScenario] = None
@@ -22,7 +23,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         # Navigation Stack for Child Scopes: List of (node, scope_prefix)
         self.child_scope_stack: List[Tuple[AnritsuNode, str]] = []
 
-        self.setWindowTitle("Anritsu STD Scenario Viewer v1.0.1")
+        self.setWindowTitle(f"{APP_NAME} v{VERSION}")
         self.resize(1300, 850)
 
         self._init_ui()

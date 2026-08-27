@@ -21,7 +21,7 @@
 - 가상환경을 활성화하지 않고 실행할 때는 `.venv\Scripts\python.exe app.py [scenario-file]`를 사용한다.
 - 실행 명령: `python app.py [scenario-file]`.
 - 첫 번째 명령행 인자가 존재하는 파일 경로일 때만 자동으로 로드하고, 그렇지 않으면 빈 뷰어를 연다.
-- 창 제목: `Anritsu STD Scenario Viewer v1.0.1`; 초기 크기: 1300 x 850 픽셀.
+- 제품명과 버전은 루트의 `version.py`에서 `APP_NAME`, `VERSION`으로 단일 관리한다. 창 제목은 `<APP_NAME> v<VERSION>` 형식이다. 초기 크기는 1300 x 850 픽셀이다.
 - 파일 선택 필터: `*.test`, `*.xml`, 모든 파일.
 - 파싱 또는 로드 실패는 모달 오류 대화상자로 표시한다. 로드 실패가 기존에 표시된 시나리오를 대체해서는 안 된다.
 
@@ -330,7 +330,7 @@ Start에서 도달할 수 없는 노드는 독립 흐름으로 처리한다. 각
 
 ## 인스펙터 모양
 
-인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 Version `v1.0.1`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `Collapse All`, `Use displayInformation Layout`, `Show Detail`이며 spacing은 4픽셀이다. 마지막 두 버튼은 checkable이고, 원본 레이아웃은 해제 상태, 상세 표시는 선택 상태로 시작한다.
+인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 `version.py`의 `VERSION`을 사용한 `Version: v<VERSION>`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `Collapse All`, `Use displayInformation Layout`, `Show Detail`이며 spacing은 4픽셀이다. 마지막 두 버튼은 checkable이고, 원본 레이아웃은 해제 상태, 상세 표시는 선택 상태로 시작한다.
 
 툴팁은 각각 `Render action boxes using the scenario displayInformation coordinates`, `Show or hide second-line box details`이다. 파라미터 트리 헤더는 `Key`, `Value`이며 Key는 내용에 맞추고 Value는 늘어난다. 교차 행 색상을 사용한다. `Transitions / Conditions`에는 최대 높이 90픽셀의 읽기 전용 편집기가 있다.
 
