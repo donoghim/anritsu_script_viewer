@@ -213,6 +213,7 @@ class FlowchartViewer(QWidget):
         self.use_display_layout = False
         self.show_detail = True
         self.connector_items_by_source: Dict[str, List[tuple]] = {}
+        self.connector_items_by_target: Dict[str, List[tuple]] = {}
         self.highlighted_connector_items: List[tuple] = []
         self._init_ui()
 
@@ -254,6 +255,7 @@ class FlowchartViewer(QWidget):
         self.node_items.clear()
         self.selected_item = None
         self.connector_items_by_source.clear()
+        self.connector_items_by_target.clear()
         self.highlighted_connector_items.clear()
 
         if not nodes:
@@ -1059,7 +1061,7 @@ class FlowchartViewer(QWidget):
                 path.moveTo(p1)
                 path.lineTo(p2)
                 connector_item = self._paint(path, color)
-                self._register_connector(source_id, connector_item, color)
+                self._register_connector(source_id, target_id, connector_item, color)
                 self._arrow(p2, "down", color)
                 label_step = (port_slot + 2) // 2
                 label_y = (-12 if port_slot % 2 == 0 else 12) * label_step
@@ -1117,7 +1119,7 @@ class FlowchartViewer(QWidget):
                     for point in (p2, p3, p4):
                         path.lineTo(point)
                     connector_item = self._paint(path, color)
-                    self._register_connector(source_id, connector_item, color)
+                    self._register_connector(source_id, target_id, connector_item, color)
                     self._arrow(p4, "down", color)
                     self._label(str(edge["label"]), QPointF(p1.x() + 18, p1.y() + 12), color)
                     self.child_route_debug.append({
@@ -1237,7 +1239,7 @@ class FlowchartViewer(QWidget):
                 path.lineTo(point)
             color = COL_NORMAL if edge["normal"] else COL_EXCEP
             connector_item = self._paint(path, color)
-            self._register_connector(source_id, connector_item, color)
+            self._register_connector(source_id, target_id, connector_item, color)
             self._arrow(p6, "down", color)
             self._label(str(edge["label"]), QPointF(p2.x() + 18, p2.y() - 13), color)
             self.child_route_debug.append({
@@ -1259,7 +1261,7 @@ class FlowchartViewer(QWidget):
         self._clear_connector_highlight()
         self.selected_item = item
         item.set_node_selected(True)
-        self._highlight_outgoing_connectors(item.node.id)
+        self._highlight_connected_connectors(item.node.id)
         self.node_selected.emit(item.node)
 
     def handle_node_double_click(self, item: GraphicsNodeItem):
@@ -1468,8 +1470,10 @@ class FlowchartViewer(QWidget):
         self.scene.addItem(item)
         return item
 
-    def _register_connector(self, source_id: str, item: QGraphicsPathItem, color: QColor):
+    def _register_connector(self, source_id: str, target_id: str,
+                            item: QGraphicsPathItem, color: QColor):
         self.connector_items_by_source.setdefault(source_id, []).append((item, color))
+        self.connector_items_by_target.setdefault(target_id, []).append((item, color))
 
     def _clear_connector_highlight(self):
         for item, color in self.highlighted_connector_items:
@@ -1477,8 +1481,16 @@ class FlowchartViewer(QWidget):
             item.setZValue(0)
         self.highlighted_connector_items.clear()
 
-    def _highlight_outgoing_connectors(self, source_id: str):
-        for item, color in self.connector_items_by_source.get(source_id, []):
+    def _highlight_connected_connectors(self, node_id: str):
+        seen_items = set()
+        connectors = (
+            self.connector_items_by_source.get(node_id, []) +
+            self.connector_items_by_target.get(node_id, [])
+        )
+        for item, color in connectors:
+            if item in seen_items:
+                continue
+            seen_items.add(item)
             item.setPen(QPen(color.lighter(125), 4))
             item.setZValue(1)
             self.highlighted_connector_items.append((item, color))
