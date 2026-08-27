@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QFont, QPainterPath,
-    QPainter, QWheelEvent
+    QPainter, QWheelEvent, QFontMetrics
 )
 
 from anritsu_parser import AnritsuNode
@@ -96,7 +96,7 @@ class GraphicsNodeItem(QGraphicsRectItem):
             if display_name:
                 value_parts.insert(0, f"DisplayName: {display_name}")
             if value_parts:
-                title += "\n" + " | ".join(value_parts)
+                title += "\n" + self._truncate_detail(" | ".join(value_parts))
 
         self.text_item = QGraphicsTextItem(title, self)
         self.text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -107,6 +107,22 @@ class GraphicsNodeItem(QGraphicsRectItem):
             (self.NODE_WIDTH  - tr.width())  / 2,
             (self.NODE_HEIGHT - tr.height()) / 2
         )
+
+    def _truncate_detail(self, detail: str) -> str:
+        font = QFont("Malgun Gothic", 8, QFont.Weight.Bold)
+        metrics = QFontMetrics(font)
+        max_width = self.NODE_WIDTH - 16
+        if metrics.horizontalAdvance(detail) <= max_width:
+            return detail
+
+        ellipsis = "..."
+        available_width = max_width - metrics.horizontalAdvance(ellipsis)
+        visible_length = 0
+        for index, character in enumerate(detail):
+            if metrics.horizontalAdvance(detail[:index + 1]) > available_width:
+                break
+            visible_length = index + 1
+        return detail[:visible_length] + ellipsis
 
     def _timing_values(self) -> List[str]:
         timeout_value = ""
