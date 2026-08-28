@@ -1075,7 +1075,8 @@ class FlowchartViewer(QWidget):
         for lane in range(1, max(lane_by_id.values(), default=0) + 1):
             previous_lane = lane - 1
             if previous_lane == 0:
-                gap = 40
+                boundary_routes = route_count_by_boundary.get(0, 0)
+                gap = 40 + max(0, boundary_routes - 1) * 10
             else:
                 boundary_routes = route_count_by_boundary.get(previous_lane, 0)
                 extra_lane_groups = max(0, math.ceil(math.sqrt(boundary_routes)) - 1)
@@ -1401,7 +1402,10 @@ class FlowchartViewer(QWidget):
                     if candidate <= target_pos.x() - 10
                 ]
             else:
-                internal_candidates = []
+                internal_candidates = [
+                    candidate for candidate in track_candidates
+                    if candidate >= source_pos.x() + W + 10
+                ]
                 fallback_candidates = [
                     candidate for candidate in track_candidates
                     if candidate >= source_pos.x() + W + 10
