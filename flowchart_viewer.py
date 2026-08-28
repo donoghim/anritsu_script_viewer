@@ -729,34 +729,38 @@ class FlowchartViewer(QWidget):
             or node.action_type == "END"
         }
 
-        def reaches_terminator(source_id: str, excluded_ids: set) -> bool:
+        def longest_terminator_path_length(node_id: str, excluded_ids: set) -> int:
+            if node_id in terminator_ids:
+                return 1
+
             visited_ids = set(excluded_ids)
-            pending_ids = [source_id]
-            while pending_ids:
-                node_id = pending_ids.pop()
-                if node_id in terminator_ids:
-                    return True
-                if node_id in visited_ids:
-                    continue
-                visited_ids.add(node_id)
-                pending_ids.extend(
-                    edge["target"]
-                    for edge in outgoing[node_id]
-                    if edge["target"] not in visited_ids
-                )
-            return False
+            visited_ids.add(node_id)
+            next_lengths = [
+                longest_terminator_path_length(edge["target"], visited_ids)
+                for edge in outgoing[node_id]
+                if edge["target"] not in visited_ids
+            ]
+            reachable_lengths = [length for length in next_lengths if length]
+            return 1 + max(reachable_lengths, default=0) if reachable_lengths else 0
+
+        def is_spine_return_edge(edge: Dict[str, object]) -> bool:
+            return edge["target"] in primary_node_ids
+
         current_id = start_node.id
         while current_id not in primary_node_ids:
             primary_node_ids.add(current_id)
             primary_node_order.append(current_id)
             main_candidates = [
                 edge for edge in outgoing[current_id]
-                if edge["target"] not in primary_node_ids
-                and reaches_terminator(edge["target"], primary_node_ids)
+                if not is_spine_return_edge(edge)
+                and longest_terminator_path_length(edge["target"], primary_node_ids)
             ]
-            primary_edge = min(
+            primary_edge = max(
                 main_candidates,
-                key=lambda edge: edge["outcome_index"],
+                key=lambda edge: (
+                    longest_terminator_path_length(edge["target"], primary_node_ids),
+                    -edge["outcome_index"],
+                ),
                 default=None,
             )
             if primary_edge is None:
