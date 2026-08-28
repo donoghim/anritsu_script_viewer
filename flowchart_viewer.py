@@ -715,37 +715,48 @@ class FlowchartViewer(QWidget):
                 rank[node.id] = next_rank
                 next_rank += 1
 
-        # The main vertical spine normally follows each action's first normal
-        # outcome. If a Timeout opens the longest reachable continuation, it
-        # is selected instead so the real scenario flow can continue below.
+        # The main vertical spine follows a path from START to a terminator.
+        # Only edges returning to nodes already on that path are excluded.
         primary_edge_indices: set = set()
         primary_node_ids: set = set()
         primary_node_order: List[str] = []
-        continuation_length: Dict[str, int] = {}
-        for node_id in reversed(ordered_ids):
-            continuation_length[node_id] = 1 + max(
-                (
-                    continuation_length.get(edge["target"], 0)
+
+        terminator_ids = {
+            node.id
+            for node in nodes
+            if "terminator" in node.name.lower()
+            or node.action_type.endswith("TERMINATOR")
+            or node.action_type == "END"
+        }
+
+        def reaches_terminator(source_id: str, excluded_ids: set) -> bool:
+            visited_ids = set(excluded_ids)
+            pending_ids = [source_id]
+            while pending_ids:
+                node_id = pending_ids.pop()
+                if node_id in terminator_ids:
+                    return True
+                if node_id in visited_ids:
+                    continue
+                visited_ids.add(node_id)
+                pending_ids.extend(
+                    edge["target"]
                     for edge in outgoing[node_id]
-                    if edge["normal"] or edge["label"].strip().lower() == "timeout"
-                ),
-                default=0,
-            )
+                    if edge["target"] not in visited_ids
+                )
+            return False
         current_id = start_node.id
         while current_id not in primary_node_ids:
             primary_node_ids.add(current_id)
             primary_node_order.append(current_id)
             main_candidates = [
                 edge for edge in outgoing[current_id]
-                if edge["normal"] or edge["label"].strip().lower() == "timeout"
+                if edge["target"] not in primary_node_ids
+                and reaches_terminator(edge["target"], primary_node_ids)
             ]
-            primary_edge = max(
+            primary_edge = min(
                 main_candidates,
-                key=lambda edge: (
-                    continuation_length.get(edge["target"], 0),
-                    1 if edge["normal"] else 0,
-                    -edge["outcome_index"],
-                ),
+                key=lambda edge: edge["outcome_index"],
                 default=None,
             )
             if primary_edge is None:

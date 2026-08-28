@@ -121,7 +121,7 @@ app.py
 - 위상 정렬은 incoming edge가 없는 노드부터 시작한다. 순환 참조로 처리되지 않은 노드는 마지막에 추가 레벨을 부여한다.
 - 정상 결과는 `NORMAL_LABELS`에 등록된 값이다. 예: `OK`, `Assigned`, `Logged`, `Displayed`, `True`, `Response Received`, `TimerStarted`, `TimerExpired`, `TimerStopped`, 인증/보안 완료, 빈 문자열. 그 외 결과는 예외 결과로 취급한다.
 - `primary_node_ids`는 START에서 모든 outcome을 따라 도달 가능한 전체 노드 집합이다. 정상/비정상 결과값은 이 집합 포함 여부가 아니라 색상과 라우팅 표현에만 사용한다. START에서 도달하지 못하는 나머지는 `start_unreachable_node_ids`(독립 또는 START 비도달 노드)라고 부른다.
-- `main_spine_node_ids`는 START부터 정상 결과 또는 `Timeout` 결과 중 후속 경로가 가장 긴 edge를 반복 선택한 단일 대표 경로다. 길이가 같으면 정상 결과와 먼저 정의된 outcome을 우선한다.
+- `main_spine_node_ids`는 START에서 Terminator 또는 `END` Action까지 이어지는 단일 대표 경로다. 결과값과 무관하게 종료점에 도달할 수 있는 후보 중 XML에서 먼저 정의된 outcome을 선택한다. 현재 spine에 이미 포함된 노드로 돌아가는 회귀 edge만 후보에서 제외하며, 순환 구조에 속하더라도 아직 방문하지 않은 경유 노드는 사용할 수 있다.
 - `main_spine_node_ids`의 노드는 lane 0에 고정하고, 대표 경로 edge는 연속된 세로 레벨에 배치한다.
 - 나머지 노드는 유효 incoming edge 중 하나를 결정적 부모로 선택한다. 주 흐름 edge가 우선이고, 그 외에는 정상 edge와 원래 노드/outcome 순서가 우선이다.
 - 주 흐름에서 직접 분기된 모든 노드는 outcome 결과값과 무관하게 다른 보조 흐름보다 먼저 lane을 배정받고 lane 1부터 사용한다. lane 재정렬과 표시 열 재사용 이후에도 첫 번째 직접 분기 lane은 첫 번째 보조 열로 고정된다. 같은 레벨에 여러 직접 분기가 있으면 노드 겹침을 피하기 위해 두 번째 이후 직접 분기를 오른쪽 다음 빈 lane에 배치한다.
