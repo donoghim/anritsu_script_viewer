@@ -769,18 +769,58 @@ class FlowchartViewer(QWidget):
         # ordered list is topological for acyclic edges, so one forward pass
         # prevents cross-column connectors from travelling upward. Main-flow
         # levels remain fixed by the rule above.
-        for source_id in ordered_ids:
+        for source_id in sorted(
+            ordered_ids,
+            key=lambda node_id: (rank[node_id], node_order[node_id]),
+        ):
             for edge in outgoing[source_id]:
                 target_id = edge["target"]
                 if target_id not in primary_node_ids:
                     rank[target_id] = max(rank[target_id], rank[source_id] + 1)
 
+        # A terminal node cannot introduce a cycle. Keep it below every direct
+        # predecessor even when a cyclic group raised that predecessor's rank
+        # after the main propagation pass.
+        for node_id in ordered_ids:
+            if outgoing[node_id] or not incoming[node_id]:
+                continue
+            rank[node_id] = max(
+                rank[edge["source"]] + 1
+                for edge in incoming[node_id]
+            )
+
+        # Detached entry nodes have no incoming edge, so topological sorting
+        # initially places them at the top. When one joins the graph through
+        # an outgoing edge, move it immediately above its nearest target to
+        # shorten that connector while keeping the flow downward.
+        for node_id in ordered_ids:
+            if node_id == start_node.id or incoming[node_id] or not outgoing[node_id]:
+                continue
+            nearest_target_level = min(
+                rank[edge["target"]]
+                for edge in outgoing[node_id]
+            )
+            rank[node_id] = max(0, nearest_target_level - 1)
+
         # Tree children continue the parent lane for their selected normal
         # parent edge; branches receive a new lane at the same depth.
+        def lane_priority(node_id: str) -> int:
+            if node_id in primary_node_ids:
+                return 0
+            if any(edge["source"] in primary_node_ids for edge in incoming[node_id]):
+                return 1
+            if incoming[node_id]:
+                return 2
+            return 3
+
         lane_by_id: Dict[str, int] = {}
         occupied_slots: set = set()
         next_lane = 1
-        for node_id in ordered_ids:
+        lane_allocation_order = sorted(
+            ordered_ids,
+            key=lambda node_id: (rank[node_id], lane_priority(node_id), node_order[node_id]),
+        )
+        for node_id in lane_allocation_order:
             if node_id in primary_node_ids:
                 lane_by_id[node_id] = 0
                 occupied_slots.add((rank[node_id], 0))
@@ -796,6 +836,7 @@ class FlowchartViewer(QWidget):
                 and parent_edge
                 and parent_edge["normal"]
                 and parent_id not in primary_node_ids
+                and parent_id in lane_by_id
             ):
                 lane = lane_by_id[parent_id]
             else:
@@ -817,11 +858,16 @@ class FlowchartViewer(QWidget):
             for node_id in node_map
         }
         lane_density: Dict[int, int] = {}
+        lane_priority_by_lane: Dict[int, int] = {}
         for node_id, lane in lane_by_id.items():
             lane_density[lane] = lane_density.get(lane, 0) + connection_count[node_id]
+            lane_priority_by_lane[lane] = min(
+                lane_priority_by_lane.get(lane, lane_priority(node_id)),
+                lane_priority(node_id),
+            )
         auxiliary_lanes = sorted(
             (lane for lane in lane_density if lane != 0),
-            key=lambda lane: (-lane_density[lane], lane),
+            key=lambda lane: (lane_priority_by_lane[lane], -lane_density[lane], lane),
         )
         lane_remap = {0: 0}
         lane_remap.update({lane: index + 1 for index, lane in enumerate(auxiliary_lanes)})
@@ -835,6 +881,7 @@ class FlowchartViewer(QWidget):
         # ended, which prevents long scenarios from expanding indefinitely.
         lane_span: Dict[int, List[int]] = {}
         remapped_lane_density: Dict[int, int] = {}
+        remapped_lane_priority: Dict[int, int] = {}
         for node_id, lane in lane_by_id.items():
             level = rank[node_id]
             span = lane_span.setdefault(lane, [level, level])
@@ -843,11 +890,20 @@ class FlowchartViewer(QWidget):
             remapped_lane_density[lane] = (
                 remapped_lane_density.get(lane, 0) + connection_count[node_id]
             )
+            remapped_lane_priority[lane] = min(
+                remapped_lane_priority.get(lane, lane_priority(node_id)),
+                lane_priority(node_id),
+            )
         display_lane_end: List[int] = [lane_span[0][1]] if 0 in lane_span else []
         lane_display_remap: Dict[int, int] = {0: 0} if 0 in lane_span else {}
         for lane in sorted(
             (value for value in lane_span if value != 0),
-            key=lambda value: (lane_span[value][0], -remapped_lane_density[value], value),
+            key=lambda value: (
+                lane_span[value][0],
+                remapped_lane_priority[value],
+                -remapped_lane_density[value],
+                value,
+            ),
         ):
             start_level, end_level = lane_span[lane]
             reusable = next(
