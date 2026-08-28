@@ -16,6 +16,7 @@ class ParameterTreeWidget(QWidget):
     """Widget for displaying Node Details, Parameter Tree, and Transitions/Conditions."""
     display_layout_toggled = pyqtSignal(bool)
     detail_toggled = pyqtSignal(bool)
+    main_stream_only_toggled = pyqtSignal(bool)
     TEXT_STYLE_CONFIG_PATH = Path(__file__).with_name("parameter_tree.config")
     TEXT_STYLES = {
         "muted": {"foreground": "#9A9A9A", "italic": True},
@@ -72,16 +73,21 @@ class ParameterTreeWidget(QWidget):
         self.btn_show_detail.setCheckable(True)
         self.btn_show_detail.setChecked(True)
         self.btn_show_detail.setToolTip("Show or hide second-line box details")
+        self.btn_main_stream_only = QPushButton("No show Main stream")
+        self.btn_main_stream_only.setCheckable(True)
+        self.btn_main_stream_only.setToolTip("Show only the main stream that starts from START")
 
         self.btn_expand.clicked.connect(self.expand_all)
         self.btn_collapse.clicked.connect(self.collapse_all)
         self.btn_show_sel.toggled.connect(self.display_layout_toggled)
         self.btn_show_detail.toggled.connect(self.detail_toggled)
+        self.btn_main_stream_only.toggled.connect(self.main_stream_only_toggled)
 
         btn_layout.addWidget(self.btn_expand)
         btn_layout.addWidget(self.btn_collapse)
         btn_layout.addWidget(self.btn_show_sel)
         btn_layout.addWidget(self.btn_show_detail)
+        btn_layout.addWidget(self.btn_main_stream_only)
 
         layout.addLayout(btn_layout)
 

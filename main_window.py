@@ -103,6 +103,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         self.child_flow_viewer.compound_selected.connect(self._on_child_compound_selected)
         self.param_tree.display_layout_toggled.connect(self._on_display_layout_toggled)
         self.param_tree.detail_toggled.connect(self._on_detail_toggled)
+        self.param_tree.main_stream_only_toggled.connect(self._on_main_stream_only_toggled)
 
     def _on_open_file_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -197,6 +198,14 @@ class AnritsuScenarioViewerWindow(QMainWindow):
     def _on_detail_toggled(self, enabled: bool):
         self.main_flow_viewer.set_show_detail(enabled)
         self.child_flow_viewer.set_show_detail(enabled)
+        if self.scenario:
+            self.main_flow_viewer.set_scope(self.scenario.root_actions, scope_prefix="root")
+        if self.child_scope_stack:
+            self._update_child_scope_ui()
+
+    def _on_main_stream_only_toggled(self, enabled: bool):
+        self.main_flow_viewer.set_show_main_stream_only(enabled)
+        self.child_flow_viewer.set_show_main_stream_only(enabled)
         if self.scenario:
             self.main_flow_viewer.set_scope(self.scenario.root_actions, scope_prefix="root")
         if self.child_scope_stack:

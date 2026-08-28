@@ -228,6 +228,7 @@ class FlowchartViewer(QWidget):
         self.selected_item: Optional[GraphicsNodeItem] = None
         self.use_display_layout = False
         self.show_detail = True
+        self.show_main_stream_only = False
         self.connector_items_by_source: Dict[str, List[tuple]] = {}
         self.connector_items_by_target: Dict[str, List[tuple]] = {}
         self.highlighted_connector_items: List[tuple] = []
@@ -288,6 +289,10 @@ class FlowchartViewer(QWidget):
 
     def set_show_detail(self, enabled: bool):
         self.show_detail = enabled
+        return
+
+    def set_show_main_stream_only(self, enabled: bool):
+        self.show_main_stream_only = enabled
         return
 
         node_id_map: Dict[str, AnritsuNode] = {n.id: n for n in nodes}
@@ -652,6 +657,27 @@ class FlowchartViewer(QWidget):
                 outgoing[source.id].append(edge)
                 incoming[target_id].append(edge)
 
+        start_node = next(
+            (node for node in nodes if node.action_type == "START" or node.id == "0"),
+            nodes[0],
+        )
+        primary_node_ids: set = set()
+        pending_node_ids = [start_node.id]
+        while pending_node_ids:
+            node_id = pending_node_ids.pop()
+            if node_id in primary_node_ids:
+                continue
+            primary_node_ids.add(node_id)
+            pending_node_ids.extend(
+                edge["target"]
+                for edge in outgoing[node_id]
+                if edge["target"] not in primary_node_ids
+            )
+        if self.show_main_stream_only and len(primary_node_ids) != len(node_map):
+            primary_nodes = [node for node in nodes if node.id in primary_node_ids]
+            self._set_child_scope(primary_nodes, scope_prefix)
+            return
+
         def edge_key(edge: Dict[str, object]):
             return (
                 node_order[edge["source"]],
@@ -664,10 +690,6 @@ class FlowchartViewer(QWidget):
 
         # Topological levels ensure tree edges always point to a later level.
         indegree = {node.id: len(incoming[node.id]) for node in nodes}
-        start_node = next(
-            (node for node in nodes if node.action_type == "START" or node.id == "0"),
-            nodes[0],
-        )
         ready = [node_id for node_id, degree in indegree.items() if degree == 0]
         ready.sort(key=lambda node_id: (node_id != start_node.id, node_order[node_id]))
         ordered_ids: List[str] = []
@@ -731,6 +753,22 @@ class FlowchartViewer(QWidget):
             primary_edge_indices.add(primary_edge["index"])
             current_id = primary_edge["target"]
 
+        main_spine_node_ids = primary_node_ids
+        main_spine_edge_indices = primary_edge_indices
+        primary_node_ids = set()
+        pending_node_ids = [start_node.id]
+        while pending_node_ids:
+            node_id = pending_node_ids.pop()
+            if node_id in primary_node_ids:
+                continue
+            primary_node_ids.add(node_id)
+            pending_node_ids.extend(
+                edge["target"]
+                for edge in outgoing[node_id]
+                if edge["target"] not in primary_node_ids
+            )
+        start_unreachable_node_ids = set(node_map) - primary_node_ids
+
         # Select one deterministic parent per node. Normal outcomes win, which
         # keeps the normal path vertically continuous in the generated tree.
         tree_parent: Dict[str, str] = {}
@@ -745,7 +783,7 @@ class FlowchartViewer(QWidget):
             parent_edge = min(
                 candidates,
                 key=lambda edge: (
-                    0 if edge["index"] in primary_edge_indices else 1,
+                    0 if edge["index"] in main_spine_edge_indices else 1,
                     edge_key(edge),
                 ),
             )
@@ -775,7 +813,7 @@ class FlowchartViewer(QWidget):
         ):
             for edge in outgoing[source_id]:
                 target_id = edge["target"]
-                if target_id not in primary_node_ids:
+                if target_id not in main_spine_node_ids:
                     rank[target_id] = max(rank[target_id], rank[source_id] + 1)
 
         # A terminal node cannot introduce a cycle. Keep it below every direct
@@ -802,26 +840,75 @@ class FlowchartViewer(QWidget):
             )
             rank[node_id] = max(0, nearest_target_level - 1)
 
-        # Tree children continue the parent lane for their selected normal
-        # parent edge; branches receive a new lane at the same depth.
+        # Each auxiliary flow continues through its first defined outcome,
+        # regardless of label. Additional outcomes become new rightward lanes.
+        direct_primary_branch_ids = {
+            edge["target"]
+            for source_id in main_spine_node_ids
+            for edge in outgoing[source_id]
+            if edge["target"] not in main_spine_node_ids
+        }
+        continuation_edge_indices = {
+            min(edge_list, key=lambda edge: edge["outcome_index"])["index"]
+            for node_id, edge_list in outgoing.items()
+            if node_id not in main_spine_node_ids and edge_list
+        }
+        locked_lane_by_id: Dict[str, int] = {
+            node_id: 0 for node_id in main_spine_node_ids
+        }
+        locked_slots: set = set()
+        for node_id in sorted(
+            direct_primary_branch_ids,
+            key=lambda item: (rank[item], node_order[item]),
+        ):
+            lane = 1
+            while (rank[node_id], lane) in locked_slots:
+                lane += 1
+            locked_lane_by_id[node_id] = lane
+            locked_slots.add((rank[node_id], lane))
+
+        # Lock each branch's first XML-defined outcome to its parent's lane
+        # before detached nodes and unrelated components are allocated.
+        pending_locked_nodes = list(locked_lane_by_id)
+        while pending_locked_nodes:
+            source_id = pending_locked_nodes.pop(0)
+            for edge in outgoing[source_id]:
+                if edge["index"] not in continuation_edge_indices:
+                    continue
+                target_id = edge["target"]
+                if target_id in main_spine_node_ids or target_id in locked_lane_by_id:
+                    continue
+                locked_lane_by_id[target_id] = locked_lane_by_id[source_id]
+                pending_locked_nodes.append(target_id)
+
+        visible_node_ids = (
+            primary_node_ids if self.show_main_stream_only else set(node_map)
+        )
+
         def lane_priority(node_id: str) -> int:
-            if node_id in primary_node_ids:
+            if node_id in main_spine_node_ids:
                 return 0
-            if any(edge["source"] in primary_node_ids for edge in incoming[node_id]):
+            if node_id in direct_primary_branch_ids:
                 return 1
-            if incoming[node_id]:
+            if node_id in primary_node_ids:
                 return 2
-            return 3
+            if incoming[node_id]:
+                return 3
+            return 4
 
         lane_by_id: Dict[str, int] = {}
         occupied_slots: set = set()
         next_lane = 1
         lane_allocation_order = sorted(
             ordered_ids,
-            key=lambda node_id: (rank[node_id], lane_priority(node_id), node_order[node_id]),
+            key=lambda node_id: (lane_priority(node_id), rank[node_id], node_order[node_id]),
         )
         for node_id in lane_allocation_order:
-            if node_id in primary_node_ids:
+            if node_id in locked_lane_by_id:
+                lane_by_id[node_id] = locked_lane_by_id[node_id]
+                occupied_slots.add((rank[node_id], locked_lane_by_id[node_id]))
+                continue
+            if node_id in main_spine_node_ids:
                 lane_by_id[node_id] = 0
                 occupied_slots.add((rank[node_id], 0))
                 continue
@@ -834,13 +921,23 @@ class FlowchartViewer(QWidget):
             if (
                 parent_id is not None
                 and parent_edge
-                and parent_edge["normal"]
-                and parent_id not in primary_node_ids
+                and parent_edge["index"] in continuation_edge_indices
+                and parent_id not in main_spine_node_ids
                 and parent_id in lane_by_id
             ):
                 lane = lane_by_id[parent_id]
             else:
-                lane = 1
+                if node_id in direct_primary_branch_ids:
+                    lane = 1
+                elif node_id in primary_node_ids:
+                    lane = 2
+                else:
+                    primary_lanes = [
+                        assigned_lane
+                        for assigned_id, assigned_lane in lane_by_id.items()
+                        if assigned_id in primary_node_ids
+                    ]
+                    lane = max(primary_lanes, default=1) + 1
                 while (rank[node_id], lane) in occupied_slots:
                     lane += 1
                 next_lane = max(next_lane, lane + 1)
@@ -849,6 +946,11 @@ class FlowchartViewer(QWidget):
                 next_lane += 1
             lane_by_id[node_id] = lane
             occupied_slots.add((rank[node_id], lane))
+
+        primary_logical_lane_by_id = {
+            node_id: lane_by_id[node_id]
+            for node_id in primary_node_ids
+        }
 
         # Reorder the tree lanes from the complete connection map. Dense
         # streams stay on the left; sparse streams move right without changing
@@ -867,7 +969,12 @@ class FlowchartViewer(QWidget):
             )
         auxiliary_lanes = sorted(
             (lane for lane in lane_density if lane != 0),
-            key=lambda lane: (lane_priority_by_lane[lane], -lane_density[lane], lane),
+            key=lambda lane: (
+                0 if lane == 1 and lane_priority_by_lane[lane] == 1 else 1,
+                lane_priority_by_lane[lane],
+                -lane_density[lane],
+                lane,
+            ),
         )
         lane_remap = {0: 0}
         lane_remap.update({lane: index + 1 for index, lane in enumerate(auxiliary_lanes)})
@@ -899,6 +1006,7 @@ class FlowchartViewer(QWidget):
         for lane in sorted(
             (value for value in lane_span if value != 0),
             key=lambda value: (
+                0 if value == 1 and remapped_lane_priority[value] == 1 else 1,
                 lane_span[value][0],
                 remapped_lane_priority[value],
                 -remapped_lane_density[value],
@@ -908,7 +1016,7 @@ class FlowchartViewer(QWidget):
             start_level, end_level = lane_span[lane]
             reusable = next(
                 (index for index, occupied_end in enumerate(display_lane_end[1:], start=1)
-                 if occupied_end < start_level),
+                 if index != 1 and occupied_end < start_level),
                 None,
             )
             if reusable is None:
@@ -921,6 +1029,21 @@ class FlowchartViewer(QWidget):
             node_id: lane_display_remap[lane]
             for node_id, lane in lane_by_id.items()
         }
+        lane_by_id.update(primary_logical_lane_by_id)
+
+        primary_max_lane = max(
+            (lane_by_id[node_id] for node_id in primary_node_ids),
+            default=0,
+        )
+        unreachable_lane_remap = {
+            lane: primary_max_lane + index + 1
+            for index, lane in enumerate(sorted({
+                lane_by_id[node_id]
+                for node_id in start_unreachable_node_ids
+            }))
+        }
+        for node_id in start_unreachable_node_ids:
+            lane_by_id[node_id] = unreachable_lane_remap[lane_by_id[node_id]]
 
         # A column gap holds only the routed edges that cross its boundary.
         route_count_by_boundary: Dict[int, int] = {}
@@ -936,9 +1059,12 @@ class FlowchartViewer(QWidget):
         lane_x: Dict[int, float] = {0: 100.0}
         for lane in range(1, max(lane_by_id.values(), default=0) + 1):
             previous_lane = lane - 1
-            boundary_routes = route_count_by_boundary.get(previous_lane, 0)
-            extra_lane_groups = max(0, math.ceil(math.sqrt(boundary_routes)) - 1)
-            gap = 40 + extra_lane_groups * 20
+            if previous_lane == 0:
+                gap = 40
+            else:
+                boundary_routes = route_count_by_boundary.get(previous_lane, 0)
+                extra_lane_groups = max(0, math.ceil(math.sqrt(boundary_routes)) - 1)
+                gap = 40 + extra_lane_groups * 20
             lane_x[lane] = lane_x[previous_lane] + W + gap
 
         # Reserve space only where a routed edge needs a horizontal segment:
@@ -1054,13 +1180,24 @@ class FlowchartViewer(QWidget):
             source_slots.add(slot)
             target_slots.add(slot)
         for node_id in pos_map:
+            if node_id not in visible_node_ids:
+                continue
             item = GraphicsNodeItem(node_map[node_id], scope_prefix, viewer=self)
             item.setPos(pos_map[node_id])
             self.scene.addItem(item)
             self.node_items[node_id] = item
 
-        min_left = min(position.x() for position in pos_map.values())
-        max_right = max(position.x() + W for position in pos_map.values())
+        edges = [
+            edge for edge in edges
+            if edge["source"] in visible_node_ids and edge["target"] in visible_node_ids
+        ]
+        visible_positions = [
+            pos_map[node_id]
+            for node_id in visible_node_ids
+            if node_id in pos_map
+        ]
+        min_left = min(position.x() for position in visible_positions)
+        max_right = max(position.x() + W for position in visible_positions)
         if self.use_display_layout:
             # Original layout coordinates do not share the automatic lane_x
             # grid. Search every visible 10px corridor and let obstacle checks
