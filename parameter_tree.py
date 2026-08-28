@@ -1,11 +1,13 @@
 import xml.etree.ElementTree as ET
+import json
+from pathlib import Path
 from typing import Optional, List, Dict
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QTreeWidget, QTreeWidgetItem, QGroupBox, QTextEdit, QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 
 from anritsu_parser import AnritsuNode
 from version import VERSION
@@ -14,9 +16,16 @@ class ParameterTreeWidget(QWidget):
     """Widget for displaying Node Details, Parameter Tree, and Transitions/Conditions."""
     display_layout_toggled = pyqtSignal(bool)
     detail_toggled = pyqtSignal(bool)
+    TEXT_STYLE_CONFIG_PATH = Path(__file__).with_name("parameter_tree.config")
+    TEXT_STYLES = {
+        "muted": {"foreground": "#9A9A9A", "italic": True},
+        "emphasis": {"foreground": "#7A5700", "background": "#FFF3CD", "bold": True},
+        "highlight": {"foreground": "#003B73", "background": "#DCEEFF", "bold": True},
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.text_style_rules = self._load_text_style_rules()
         self._init_ui()
 
     def _init_ui(self):
@@ -148,12 +157,15 @@ class ParameterTreeWidget(QWidget):
             key_str = tag_name
 
         item = QTreeWidgetItem([key_str, ""])
+        self._apply_text_style(item, key_str)
 
         # Add XML attributes as children (e.g. @variable_able, @default_able)
         for attr_k, attr_v in elem.attrib.items():
             attr_name = attr_k.split("}")[-1] if "}" in attr_k else attr_k
             if attr_name != "type":
                 attr_item = QTreeWidgetItem([f"@{attr_name}", str(attr_v)])
+                self._apply_text_style(attr_item, attr_name)
+                self._apply_text_style(attr_item, str(attr_v))
                 item.addChild(attr_item)
 
         text_content = (elem.text or "").strip()
@@ -163,6 +175,7 @@ class ParameterTreeWidget(QWidget):
         if child_elems:
             if text_content:
                 val_item = QTreeWidgetItem(["value", text_content])
+                self._apply_text_style(val_item, text_content)
                 item.addChild(val_item)
             for child in child_elems:
                 self._build_tree_items(child, item)
@@ -172,8 +185,48 @@ class ParameterTreeWidget(QWidget):
                 item.setText(1, f"({len(child_elems)} values)")
         else:
             item.setText(1, text_content)
+            self._apply_text_style(item, text_content)
 
         parent_item.addChild(item)
+
+    def _load_text_style_rules(self) -> List[Dict[str, str]]:
+        try:
+            with self.TEXT_STYLE_CONFIG_PATH.open(encoding="utf-8") as config_file:
+                config = json.load(config_file)
+        except (OSError, json.JSONDecodeError):
+            return []
+
+        rules = config.get("rules", [])
+        return [
+            rule for rule in rules
+            if isinstance(rule, dict)
+            and isinstance(rule.get("text"), str)
+            and rule.get("match", "exact") in {"exact", "contains"}
+            and rule.get("style") in self.TEXT_STYLES
+        ]
+
+    def _apply_text_style(self, item: QTreeWidgetItem, text: str):
+        comparison_text = text.casefold()
+        for rule in self.text_style_rules:
+            target_text = rule["text"].casefold()
+            matches = (
+                comparison_text == target_text
+                if rule.get("match", "exact") == "exact"
+                else target_text in comparison_text
+            )
+            if not matches:
+                continue
+
+            style = self.TEXT_STYLES[rule["style"]]
+            font = item.font(0)
+            font.setBold(style.get("bold", False))
+            font.setItalic(style.get("italic", False))
+            for column in range(2):
+                item.setForeground(column, QColor(style["foreground"]))
+                if "background" in style:
+                    item.setBackground(column, QColor(style["background"]))
+                item.setFont(column, font)
+            return
 
     def expand_all(self):
         self.tree_widget.expandAll()
