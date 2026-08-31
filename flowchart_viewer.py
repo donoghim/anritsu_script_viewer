@@ -1,4 +1,3 @@
-import math
 from typing import Dict, List, Optional
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
@@ -818,18 +817,25 @@ class FlowchartViewer(QWidget):
         for level, node_id in enumerate(primary_node_order):
             rank[node_id] = level
 
-        # Keep auxiliary targets below every source that reaches them. The
-        # ordered list is topological for acyclic edges, so one forward pass
-        # prevents cross-column connectors from travelling upward. Main-flow
-        # levels remain fixed by the rule above.
-        for source_id in sorted(
-            ordered_ids,
-            key=lambda node_id: (rank[node_id], node_order[node_id]),
-        ):
-            for edge in outgoing[source_id]:
-                target_id = edge["target"]
-                if target_id not in main_spine_node_ids:
-                    rank[target_id] = max(rank[target_id], rank[source_id] + 1)
+        # Keep auxiliary targets below every source that reaches them. Repeated
+        # forward-edge passes ensure changes from multi-incoming nodes (like joins)
+        # fully propagate to all downstream descendants.
+        topo_index = {node_id: i for i, node_id in enumerate(ordered_ids)}
+        for _ in range(len(nodes)):
+            changed = False
+            for source_id in ordered_ids:
+                for edge in outgoing[source_id]:
+                    target_id = edge["target"]
+                    if target_id not in main_spine_node_ids:
+                        is_forward = (
+                            topo_index.get(target_id, 0) > topo_index.get(source_id, 0)
+                            or tree_parent.get(target_id) == source_id
+                        )
+                        if is_forward and rank[target_id] < rank[source_id] + 1:
+                            rank[target_id] = rank[source_id] + 1
+                            changed = True
+            if not changed:
+                break
 
         # A terminal node cannot introduce a cycle. Keep it below every direct
         # predecessor even when a cyclic group raised that predecessor's rank
@@ -838,8 +844,13 @@ class FlowchartViewer(QWidget):
             if outgoing[node_id] or not incoming[node_id]:
                 continue
             rank[node_id] = max(
-                rank[edge["source"]] + 1
-                for edge in incoming[node_id]
+                (
+                    rank[edge["source"]] + 1
+                    for edge in incoming[node_id]
+                    if topo_index.get(node_id, 0) > topo_index.get(edge["source"], 0)
+                    or tree_parent.get(node_id) == edge["source"]
+                ),
+                default=rank[node_id],
             )
 
         # Detached entry nodes have no incoming edge, so topological sorting
@@ -1050,15 +1061,113 @@ class FlowchartViewer(QWidget):
             (lane_by_id[node_id] for node_id in primary_node_ids),
             default=0,
         )
-        unreachable_lane_remap = {
-            lane: primary_max_lane + index + 1
-            for index, lane in enumerate(sorted({
-                lane_by_id[node_id]
-                for node_id in start_unreachable_node_ids
-            }))
-        }
-        for node_id in start_unreachable_node_ids:
-            lane_by_id[node_id] = unreachable_lane_remap[lane_by_id[node_id]]
+        unreachable_head_ids = [
+            node_id
+            for node_id in start_unreachable_node_ids
+            if not any(edge["source"] in start_unreachable_node_ids for edge in incoming[node_id])
+        ]
+        unreachable_head_ids.sort(key=lambda node_id: node_order[node_id])
+        unreachable_group_by_id: Dict[str, int] = {}
+
+        def assign_unreachable_group(head_id: str, group_index: int):
+            pending_ids = [head_id]
+            while pending_ids:
+                node_id = pending_ids.pop()
+                if node_id in unreachable_group_by_id:
+                    continue
+                unreachable_group_by_id[node_id] = group_index
+                pending_ids.extend(
+                    edge["target"]
+                    for edge in outgoing[node_id]
+                    if edge["target"] in start_unreachable_node_ids
+                )
+
+        for group_index, head_id in enumerate(unreachable_head_ids):
+            assign_unreachable_group(head_id, group_index)
+        for node_id in sorted(start_unreachable_node_ids, key=lambda item: node_order[item]):
+            if node_id not in unreachable_group_by_id:
+                assign_unreachable_group(node_id, len(unreachable_head_ids))
+                unreachable_head_ids.append(node_id)
+
+        next_unreachable_lane = primary_max_lane + 1
+        for group_index, head_id in enumerate(unreachable_head_ids):
+            group_node_ids = [
+                node_id
+                for node_id, node_group_index in unreachable_group_by_id.items()
+                if node_group_index == group_index
+            ]
+
+            def longest_group_path(node_id: str, visited_ids: set) -> List[str]:
+                next_paths = [
+                    longest_group_path(edge["target"], visited_ids | {node_id})
+                    for edge in outgoing[node_id]
+                    if edge["target"] in group_node_ids
+                    and edge["target"] not in visited_ids
+                ]
+                return [node_id] + max(next_paths, key=len, default=[])
+
+            group_spine_ids = longest_group_path(head_id, set())
+            group_spine_id_set = set(group_spine_ids)
+            group_lane_by_id = {
+                node_id: next_unreachable_lane
+                for node_id in group_spine_ids
+            }
+
+            for node_id in sorted(
+                group_node_ids,
+                key=lambda item: (rank[item], node_order[item]),
+            ):
+                if node_id in group_lane_by_id:
+                    continue
+                assigned_parent_edges = [
+                    edge for edge in incoming[node_id]
+                    if edge["source"] in group_lane_by_id
+                ]
+                if not assigned_parent_edges:
+                    group_lane_by_id[node_id] = next_unreachable_lane + 1
+                    continue
+                parent_edge = min(assigned_parent_edges, key=edge_key)
+                parent_id = parent_edge["source"]
+                first_target_id = min(
+                    (
+                        edge["target"]
+                        for edge in outgoing[parent_id]
+                        if edge["target"] in group_node_ids
+                    ),
+                    key=lambda target_id: next(
+                        edge["outcome_index"]
+                        for edge in outgoing[parent_id]
+                        if edge["target"] == target_id
+                    ),
+                    default="",
+                )
+                group_lane_by_id[node_id] = (
+                    group_lane_by_id[parent_id]
+                    if node_id == first_target_id and parent_id not in group_spine_id_set
+                    else group_lane_by_id[parent_id] + 1
+                )
+
+            occupied_ranks_by_lane: Dict[int, set] = {}
+            for node_id in sorted(
+                group_node_ids,
+                key=lambda item: (rank[item], node_order[item]),
+            ):
+                lane = group_lane_by_id[node_id]
+                predecessor_rank = max(
+                    (
+                        rank[edge["source"]] + 1
+                        for edge in incoming[node_id]
+                        if unreachable_group_by_id.get(edge["source"]) == group_index
+                    ),
+                    default=rank[node_id],
+                )
+                rank[node_id] = max(rank[node_id], predecessor_rank)
+                occupied_ranks = occupied_ranks_by_lane.setdefault(lane, set())
+                while rank[node_id] in occupied_ranks:
+                    rank[node_id] += 1
+                occupied_ranks.add(rank[node_id])
+                lane_by_id[node_id] = lane
+            next_unreachable_lane = max(group_lane_by_id.values()) + 1
 
         # A column gap holds only the routed edges that cross its boundary.
         route_count_by_boundary: Dict[int, int] = {}
@@ -1066,6 +1175,18 @@ class FlowchartViewer(QWidget):
             source_lane = lane_by_id[edge["source"]]
             target_lane = lane_by_id[edge["target"]]
             if source_lane == target_lane:
+                source_rank = rank[edge["source"]]
+                target_rank = rank[edge["target"]]
+                has_intervening_node = any(
+                    other_id not in {edge["source"], edge["target"]}
+                    and lane_by_id[other_id] == source_lane
+                    and source_rank < rank[other_id] < target_rank
+                    for other_id in lane_by_id
+                )
+                if (target_rank <= source_rank or has_intervening_node) and source_lane < max(lane_by_id.values()):
+                    route_count_by_boundary[source_lane] = (
+                        route_count_by_boundary.get(source_lane, 0) + 1
+                    )
                 continue
             for boundary in range(min(source_lane, target_lane), max(source_lane, target_lane)):
                 route_count_by_boundary[boundary] = (
@@ -1074,13 +1195,10 @@ class FlowchartViewer(QWidget):
         lane_x: Dict[int, float] = {0: 100.0}
         for lane in range(1, max(lane_by_id.values(), default=0) + 1):
             previous_lane = lane - 1
-            if previous_lane == 0:
-                boundary_routes = route_count_by_boundary.get(0, 0)
-                gap = 40 + max(0, boundary_routes - 1) * 10
-            else:
-                boundary_routes = route_count_by_boundary.get(previous_lane, 0)
-                extra_lane_groups = max(0, math.ceil(math.sqrt(boundary_routes)) - 1)
-                gap = 40 + extra_lane_groups * 20
+            boundary_routes = route_count_by_boundary.get(previous_lane, 0)
+            # The 40px base gap admits one 10px-spaced internal track. Every
+            # additional crossing edge reserves one more track in this gap.
+            gap = 40 + max(0, boundary_routes - 1) * 10
             lane_x[lane] = lane_x[previous_lane] + W + gap
 
         # Reserve space only where a routed edge needs a horizontal segment:
