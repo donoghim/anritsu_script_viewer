@@ -101,6 +101,8 @@ class AnritsuScenarioViewerWindow(QMainWindow):
 
         self.child_flow_viewer.node_selected.connect(self._on_child_node_selected)
         self.child_flow_viewer.compound_selected.connect(self._on_child_compound_selected)
+        self.main_flow_viewer.find_requested.connect(self._on_main_search_requested)
+        self.child_flow_viewer.find_requested.connect(self._on_child_search_requested)
         self.param_tree.display_layout_toggled.connect(self._on_display_layout_toggled)
         self.param_tree.detail_toggled.connect(self._on_detail_toggled)
         self.param_tree.main_stream_only_toggled.connect(self._on_main_stream_only_toggled)
@@ -229,3 +231,90 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         total_w = self.main_splitter.width()
         if total_w > 700:
             self.main_splitter.setSizes([int(total_w * 0.6), int(total_w * 0.4)])
+
+    def _on_main_search_requested(self, query: str):
+        self._handle_search(query, from_viewer="main")
+
+    def _on_child_search_requested(self, query: str):
+        self._handle_search(query, from_viewer="child")
+
+    def _handle_search(self, query: str, from_viewer: str = "main"):
+        if not self.scenario:
+            QMessageBox.information(self, "Find Node", "No scenario file loaded.")
+            return
+
+        raw_parts = [p.strip() for p in query.split(":") if p.strip()]
+        if not raw_parts:
+            return
+
+        # Strip optional 'root' prefix
+        if raw_parts[0].lower() == "root":
+            parts = raw_parts[1:]
+        else:
+            parts = raw_parts
+
+        if not parts:
+            parts = ["0"]
+
+        # Case 1: Search from Child Scope and query is a single node ID (e.g. "7")
+        if from_viewer == "child" and len(parts) == 1:
+            if not self.child_flow_viewer.isVisible() or not self.child_scope_stack:
+                QMessageBox.information(self, "Find Node", "No child scope is currently open.")
+                return
+            target_id = parts[0]
+            found = self.child_flow_viewer.select_and_center_node(target_id)
+            if not found:
+                curr_prefix = self.child_scope_stack[-1][1] if self.child_scope_stack else "child"
+                QMessageBox.information(self, "Find Node", f"Node '{target_id}' not found in current scope '{curr_prefix}'.")
+            return
+
+        # Case 2: Query is a single node ID from Main Scope (e.g. "328")
+        if len(parts) == 1:
+            target_id = parts[0]
+            found = self.main_flow_viewer.select_and_center_node(target_id)
+            if not found:
+                QMessageBox.information(self, "Find Node", f"Node '{target_id}' not found in Main Scope (root).")
+            return
+
+        # Case 3: Hierarchical query (e.g. "328:7" or "328:210:5")
+        # Step A: Find top-level root node
+        root_id = parts[0]
+        root_node = self.scenario.node_map.get(root_id)
+        if not root_node:
+            QMessageBox.information(self, "Find Node", f"Root node '{root_id}' not found.")
+            return
+
+        self.main_flow_viewer.select_and_center_node(root_id)
+
+        # Step B: Traverse compound nodes to construct the navigation stack
+        current_node = root_node
+        current_prefix = f"root:{root_id}"
+        new_stack = []
+
+        for next_id in parts[1:-1]:
+            if not current_node.child_actions:
+                QMessageBox.information(self, "Find Node", f"Node '{current_node.id}' in '{current_prefix}' is not a compound action.")
+                return
+            next_node = current_node.child_id_map.get(next_id)
+            if not next_node:
+                QMessageBox.information(self, "Find Node", f"Node '{next_id}' not found in scope '{current_prefix}'.")
+                return
+            new_stack.append((current_node, current_prefix))
+            current_node = next_node
+            current_prefix = f"{current_prefix}:{next_id}"
+
+        if not current_node.child_actions:
+            QMessageBox.information(self, "Find Node", f"Node '{current_node.id}' in '{current_prefix}' is not a compound action.")
+            return
+
+        last_id = parts[-1]
+        last_node = current_node.child_id_map.get(last_id)
+        if not last_node:
+            QMessageBox.information(self, "Find Node", f"Node '{last_id}' not found in scope '{current_prefix}'.")
+            return
+
+        new_stack.append((current_node, current_prefix))
+        self.child_scope_stack = new_stack
+        self._update_child_scope_ui()
+
+        self.child_flow_viewer.select_and_center_node(last_id)

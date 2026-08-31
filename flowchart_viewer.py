@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPathItem,
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit
 )
 from PyQt6.QtCore import Qt, QPointF, pyqtSignal
 from PyQt6.QtGui import (
@@ -218,6 +218,7 @@ class FlowchartViewer(QWidget):
     """
     node_selected     = pyqtSignal(object)
     compound_selected = pyqtSignal(object)
+    find_requested    = pyqtSignal(str)
 
     def __init__(self, title: str = "Flowchart View", parent=None):
         super().__init__(parent)
@@ -243,14 +244,26 @@ class FlowchartViewer(QWidget):
         self.lbl_title.setFont(QFont("Malgun Gothic", 9, QFont.Weight.Bold))
         hdr.addWidget(self.lbl_title)
 
+        hdr.addStretch(1)
+
+        self.edit_search = QLineEdit()
+        self.edit_search.setPlaceholderText("Step ID (e.g. 328 or 328:7)")
+        self.edit_search.setFixedWidth(170)
+        self.edit_search.returnPressed.connect(self._on_search_triggered)
+        hdr.addWidget(self.edit_search)
+
+        self.btn_search = QPushButton("Find")
+        self.btn_search.clicked.connect(self._on_search_triggered)
+        hdr.addWidget(self.btn_search)
+
         self.btn_center_selected = QPushButton("Center Selected")
         self.btn_center_selected.setVisible(self.title_str.startswith("Main Scope"))
         self.btn_center_selected.clicked.connect(self.center_selected_node)
-        hdr.addWidget(self.btn_center_selected, alignment=Qt.AlignmentFlag.AlignRight)
+        hdr.addWidget(self.btn_center_selected)
 
         self.btn_close = QPushButton("Close Child Scope")
         self.btn_close.setVisible(False)
-        hdr.addWidget(self.btn_close, alignment=Qt.AlignmentFlag.AlignRight)
+        hdr.addWidget(self.btn_close)
         layout.addLayout(hdr)
 
         self.scene = QGraphicsScene(self)
@@ -260,6 +273,19 @@ class FlowchartViewer(QWidget):
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         layout.addWidget(self.view)
+
+    def _on_search_triggered(self):
+        query = self.edit_search.text().strip()
+        if query:
+            self.find_requested.emit(query)
+
+    def select_and_center_node(self, node_id: str) -> bool:
+        item = self.node_items.get(node_id)
+        if item:
+            self.handle_node_click(item)
+            self.view.centerOn(item)
+            return True
+        return False
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Public API
@@ -687,9 +713,40 @@ class FlowchartViewer(QWidget):
         for edge_list in outgoing.values():
             edge_list.sort(key=edge_key)
 
-        # Topological levels ensure tree edges always point to a later level.
-        indegree = {node.id: len(incoming[node.id]) for node in nodes}
-        ready = [node_id for node_id, degree in indegree.items() if degree == 0]
+        # Step 1: Detect cycle back-edges using DFS from start_node and unvisited nodes
+        state = {node.id: 0 for node in nodes}  # 0: UNVISITED, 1: VISITING, 2: VISITED
+        back_edge_indices = set()
+
+        def dfs_edge_sort_key(edge: Dict[str, object]):
+            return (0 if edge["normal"] else 1, edge["outcome_index"], node_order[edge["target"]])
+
+        for edge_list in outgoing.values():
+            edge_list.sort(key=dfs_edge_sort_key)
+
+        def dfs(node_id: str):
+            state[node_id] = 1
+            for edge in outgoing[node_id]:
+                target_id = str(edge["target"])
+                if state[target_id] == 1:
+                    back_edge_indices.add(edge["index"])
+                elif state[target_id] == 0:
+                    dfs(target_id)
+            state[node_id] = 2
+
+        dfs(start_node.id)
+        for node in nodes:
+            if state[node.id] == 0:
+                dfs(node.id)
+
+        for edge_list in outgoing.values():
+            edge_list.sort(key=edge_key)
+
+        # Step 2: Kahn's topological sort on DAG (excluding back-edges)
+        dag_indegree = {
+            node.id: len([e for e in incoming[node.id] if e["index"] not in back_edge_indices])
+            for node in nodes
+        }
+        ready = [node.id for node in nodes if dag_indegree[node.id] == 0]
         ready.sort(key=lambda node_id: (node_id != start_node.id, node_order[node_id]))
         ordered_ids: List[str] = []
         rank: Dict[str, int] = {node_id: 0 for node_id in ready}
@@ -698,15 +755,16 @@ class FlowchartViewer(QWidget):
             source_id = ready.pop(0)
             ordered_ids.append(source_id)
             for edge in outgoing[source_id]:
-                target_id = edge["target"]
+                if edge["index"] in back_edge_indices:
+                    continue
+                target_id = str(edge["target"])
                 rank[target_id] = max(rank.get(target_id, 0), rank[source_id] + 1)
-                indegree[target_id] -= 1
-                if indegree[target_id] == 0:
+                dag_indegree[target_id] -= 1
+                if dag_indegree[target_id] == 0:
                     ready.append(target_id)
                     ready.sort(key=lambda node_id: (rank[node_id], node_order[node_id]))
 
-        # Cycles cannot be topologically ordered; place their remaining nodes
-        # after the acyclic levels and render their links through outer lanes.
+        # Place any remaining disconnected/unresolved nodes
         next_rank = max(rank.values(), default=0) + 1
         for node in nodes:
             if node.id not in ordered_ids:
@@ -828,8 +886,9 @@ class FlowchartViewer(QWidget):
                     target_id = edge["target"]
                     if target_id not in main_spine_node_ids:
                         is_forward = (
-                            topo_index.get(target_id, 0) > topo_index.get(source_id, 0)
-                            or tree_parent.get(target_id) == source_id
+                            edge["index"] not in back_edge_indices
+                            and (topo_index.get(target_id, 0) > topo_index.get(source_id, 0)
+                                 or tree_parent.get(target_id) == source_id)
                         )
                         if is_forward and rank[target_id] < rank[source_id] + 1:
                             rank[target_id] = rank[source_id] + 1
@@ -847,8 +906,9 @@ class FlowchartViewer(QWidget):
                 (
                     rank[edge["source"]] + 1
                     for edge in incoming[node_id]
-                    if topo_index.get(node_id, 0) > topo_index.get(edge["source"], 0)
-                    or tree_parent.get(node_id) == edge["source"]
+                    if edge["index"] not in back_edge_indices
+                    and (topo_index.get(node_id, 0) > topo_index.get(edge["source"], 0)
+                         or tree_parent.get(node_id) == edge["source"])
                 ),
                 default=rank[node_id],
             )
@@ -860,11 +920,14 @@ class FlowchartViewer(QWidget):
         for node_id in ordered_ids:
             if node_id == start_node.id or incoming[node_id] or not outgoing[node_id]:
                 continue
-            nearest_target_level = min(
+            forward_targets = [
                 rank[edge["target"]]
                 for edge in outgoing[node_id]
-            )
-            rank[node_id] = max(0, nearest_target_level - 1)
+                if edge["index"] not in back_edge_indices
+            ]
+            if forward_targets:
+                nearest_target_level = min(forward_targets)
+                rank[node_id] = max(0, nearest_target_level - 1)
 
         # Each auxiliary flow continues through its first defined outcome,
         # regardless of label. Additional outcomes become new rightward lanes.
@@ -879,33 +942,74 @@ class FlowchartViewer(QWidget):
             for node_id, edge_list in outgoing.items()
             if node_id not in main_spine_node_ids and edge_list
         }
-        locked_lane_by_id: Dict[str, int] = {
-            node_id: 0 for node_id in main_spine_node_ids
-        }
-        locked_slots: set = set()
-        for node_id in sorted(
-            direct_primary_branch_ids,
-            key=lambda item: (rank[item], node_order[item]),
-        ):
-            lane = 1
-            while (rank[node_id], lane) in locked_slots:
-                lane += 1
-            locked_lane_by_id[node_id] = lane
-            locked_slots.add((rank[node_id], lane))
 
-        # Lock each branch's first XML-defined outcome to its parent's lane
-        # before detached nodes and unrelated components are allocated.
-        pending_locked_nodes = list(locked_lane_by_id)
-        while pending_locked_nodes:
-            source_id = pending_locked_nodes.pop(0)
-            for edge in outgoing[source_id]:
-                if edge["index"] not in continuation_edge_indices:
-                    continue
-                target_id = edge["target"]
-                if target_id in main_spine_node_ids or target_id in locked_lane_by_id:
-                    continue
-                locked_lane_by_id[target_id] = locked_lane_by_id[source_id]
-                pending_locked_nodes.append(target_id)
+        # Extract continuous stream chains so each whole stream stays in a single vertical lane.
+        def stream_priority(head_id: str) -> int:
+            if head_id in direct_primary_branch_ids:
+                return 0
+            if head_id in primary_node_ids:
+                return 1
+            if incoming[head_id]:
+                return 2
+            return 3
+
+        stream_heads: List[str] = []
+        for node_id in ordered_ids:
+            if node_id in main_spine_node_ids:
+                continue
+            parent_id = tree_parent.get(node_id)
+            parent_edge = next(
+                (e for e in incoming[node_id] if e["index"] in tree_edge_indices),
+                None,
+            )
+            if (
+                parent_id is None
+                or parent_id in main_spine_node_ids
+                or parent_edge is None
+                or parent_edge["index"] not in continuation_edge_indices
+            ):
+                stream_heads.append(node_id)
+
+        streams: List[List[str]] = []
+        visited_stream_nodes: set = set()
+        for head_id in sorted(
+            stream_heads,
+            key=lambda nid: (stream_priority(nid), rank[nid], node_order[nid]),
+        ):
+            chain: List[str] = []
+            curr: Optional[str] = head_id
+            while curr and curr not in visited_stream_nodes and curr not in main_spine_node_ids:
+                chain.append(curr)
+                visited_stream_nodes.add(curr)
+                cont_edge = next(
+                    (
+                        e for e in outgoing[curr]
+                        if e["index"] in continuation_edge_indices
+                        and e["target"] not in main_spine_node_ids
+                        and e["target"] not in visited_stream_nodes
+                    ),
+                    None,
+                )
+                curr = str(cont_edge["target"]) if cont_edge else None
+            if chain:
+                streams.append(chain)
+
+        # Allocate lanes per stream to ensure no zigzagging between lanes
+        lane_by_id: Dict[str, int] = {node_id: 0 for node_id in main_spine_node_ids}
+        occupied_slots: set = {(rank[node_id], 0) for node_id in main_spine_node_ids}
+
+        for st in streams:
+            lane = 1
+            while any((rank[nid], lane) in occupied_slots for nid in st):
+                lane += 1
+            for nid in st:
+                lane_by_id[nid] = lane
+                occupied_slots.add((rank[nid], lane))
+
+        primary_logical_lane_by_id = {
+            node_id: lane_by_id[node_id]
+            for node_id in primary_node_ids
+        }
 
         visible_node_ids = (
             primary_node_ids if self.show_main_stream_only else set(node_map)
@@ -921,62 +1025,6 @@ class FlowchartViewer(QWidget):
             if incoming[node_id]:
                 return 3
             return 4
-
-        lane_by_id: Dict[str, int] = {}
-        occupied_slots: set = set()
-        next_lane = 1
-        lane_allocation_order = sorted(
-            ordered_ids,
-            key=lambda node_id: (lane_priority(node_id), rank[node_id], node_order[node_id]),
-        )
-        for node_id in lane_allocation_order:
-            if node_id in locked_lane_by_id:
-                lane_by_id[node_id] = locked_lane_by_id[node_id]
-                occupied_slots.add((rank[node_id], locked_lane_by_id[node_id]))
-                continue
-            if node_id in main_spine_node_ids:
-                lane_by_id[node_id] = 0
-                occupied_slots.add((rank[node_id], 0))
-                continue
-            parent_id = tree_parent.get(node_id)
-            parent_edge = next(
-                (edge for edge in incoming[node_id]
-                 if edge["index"] in tree_edge_indices),
-                None,
-            )
-            if (
-                parent_id is not None
-                and parent_edge
-                and parent_edge["index"] in continuation_edge_indices
-                and parent_id not in main_spine_node_ids
-                and parent_id in lane_by_id
-            ):
-                lane = lane_by_id[parent_id]
-            else:
-                if node_id in direct_primary_branch_ids:
-                    lane = 1
-                elif node_id in primary_node_ids:
-                    lane = 2
-                else:
-                    primary_lanes = [
-                        assigned_lane
-                        for assigned_id, assigned_lane in lane_by_id.items()
-                        if assigned_id in primary_node_ids
-                    ]
-                    lane = max(primary_lanes, default=1) + 1
-                while (rank[node_id], lane) in occupied_slots:
-                    lane += 1
-                next_lane = max(next_lane, lane + 1)
-            while (rank[node_id], lane) in occupied_slots:
-                lane = next_lane
-                next_lane += 1
-            lane_by_id[node_id] = lane
-            occupied_slots.add((rank[node_id], lane))
-
-        primary_logical_lane_by_id = {
-            node_id: lane_by_id[node_id]
-            for node_id in primary_node_ids
-        }
 
         # Reorder the tree lanes from the complete connection map. Dense
         # streams stay on the left; sparse streams move right without changing

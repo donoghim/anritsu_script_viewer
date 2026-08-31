@@ -75,7 +75,9 @@ app.py
   - Ctrl+마우스 휠은 마우스 위치 기준 확대/축소로 처리한다.
 
 - `FlowchartViewer`
-  - 그래프 씬, 뷰, 제목 및 scope 닫기/선택 노드 중앙 배치 버튼을 관리한다.
+  - 그래프 씬, 뷰, 제목 및 검색 입력창(Find), scope 닫기/선택 노드 중앙 배치 버튼을 관리한다.
+  - `find_requested` 시그널로 사용자 노드 검색 요청(Step ID)을 메인 창에 전달한다.
+  - `select_and_center_node()`로 특정 ID의 노드를 선택 강조하고 화면 중앙에 위치시킨다.
   - `set_scope()`는 root와 child scope 모두에 대해 `_set_child_scope()`를 호출한다.
   - `_set_child_scope()`에서 전체 연결 관계를 분석해 계층, 레인, 좌표 및 연결 경로를 계산한다.
   - 자동 레이아웃과 XML `displayInformation` 좌표 레이아웃을 모두 지원한다.
@@ -118,15 +120,14 @@ app.py
 ### 배치 조건
 
 - 시작 노드는 `action_type == "START"` 또는 ID가 `"0"`인 노드를 우선하며, 없으면 목록의 첫 노드를 사용한다.
-- 위상 정렬은 incoming edge가 없는 노드부터 시작한다. 순환 참조로 처리되지 않은 노드는 마지막에 추가 레벨을 부여한다.
+- 위상 정렬은 DFS 탐색으로 순환 참조 회귀 엣지(Back-edge)를 먼저 식별하여 제외한 뒤, 순수 DAG 진입 엣지 수가 0인 노드부터 시작한다. 따라서 루프(재시도 사이클 등)가 존재하는 시나리오에서도 모든 브랜치 노드가 누락 없이 순방향 위상 정렬 순서와 초기 레벨을 부여받는다.
 - 정상 결과는 `NORMAL_LABELS`에 등록된 값이다. 예: `OK`, `Assigned`, `Logged`, `Displayed`, `True`, `Response Received`, `TimerStarted`, `TimerExpired`, `TimerStopped`, 인증/보안 완료, 빈 문자열. 그 외 결과는 예외 결과로 취급한다.
 - `primary_node_ids`는 START에서 모든 outcome을 따라 도달 가능한 전체 노드 집합이다. 정상/비정상 결과값은 이 집합 포함 여부가 아니라 색상과 라우팅 표현에만 사용한다. START에서 도달하지 못하는 나머지는 `start_unreachable_node_ids`(독립 또는 START 비도달 노드)라고 부른다.
 - `main_spine_node_ids`는 START에서 Terminator 또는 `END` Action까지 이어지는 단일 대표 경로다. 결과값과 무관하게 현재 spine에 이미 포함된 노드로 돌아가는 회귀 edge를 제외한 뒤, Terminator까지의 최대 경로 길이가 가장 큰 outcome을 선택한다. 길이가 같으면 XML에서 먼저 정의된 outcome을 우선한다. `is_spine_return_edge()`는 현재 spine에 이미 포함된 노드를 목적지로 하는 edge만 회귀 edge로 제외한다.
 - `main_spine_node_ids`의 노드는 lane 0에 고정하고, 대표 경로 edge는 연속된 세로 레벨에 배치한다.
 - 나머지 노드는 유효 incoming edge 중 하나를 결정적 부모로 선택한다. 주 흐름 edge가 우선이고, 그 외에는 정상 edge와 원래 노드/outcome 순서가 우선이다. 순방향 엣지를 따라 하위 노드로 rank를 반복 전파하여, 다중 incoming 엣지로 인해 부모 노드의 레벨이 밀려나더라도 모든 후속 자식 노드가 부모보다 아래 레벨에 배치되도록 보장한다.
-- 주 흐름에서 직접 분기된 모든 노드는 outcome 결과값과 무관하게 다른 보조 흐름보다 먼저 lane을 배정받고 lane 1부터 사용한다. lane 재정렬과 표시 열 재사용 이후에도 첫 번째 직접 분기 lane은 첫 번째 보조 열로 고정된다. 같은 레벨에 여러 직접 분기가 있으면 노드 겹침을 피하기 위해 두 번째 이후 직접 분기를 오른쪽 다음 빈 lane에 배치한다.
-- 주 흐름 밖 노드는 결과값과 무관하게 첫 번째 유효 outcome으로 결정적 부모와 연결되면 부모 lane을 유지한다. 해당 흐름의 두 번째 이후 outcome은 새 lane으로 이동한다.
-- 주 흐름과 직접 분기 노드, 그리고 각 직접 분기의 첫 번째 outcome으로 이어지는 연속 노드는 먼저 lane을 확정하고 잠근다. 이후 독립 노드와 나머지 연결 요소를 배치하며, 전역 lane 재정렬 또는 표시 열 재사용 후에도 잠긴 lane은 변경하지 않는다.
+- 주 흐름 밖 노드는 첫 번째 유효 outcome으로 연결되는 연속 스트림 체인(Stream Chain)을 구성하며, 각 스트림에 속한 모든 노드는 동일한 단일 lane을 배정받는다. 스트림 전체의 세로 레벨 범위(Span)를 기준으로 다른 분기 스트림과의 슬롯 충돌을 방지함으로써, 스트림 내부에서 레인이 좌우로 지그재그 핑퐁하는 현상을 원천 차단하고 수직 1자 배치를 보장한다.
+- 주 흐름과 직접 분기 스트림은 우선적으로 왼쪽 보조 lane을 배정받으며, 서로 세로 범위가 겹치지 않는 분기 스트림은 동일한 표시 열을 재사용한다.
 - lane 할당은 대표 주 흐름, 직접 분기, 그 외 START 도달 노드(`primary_node_ids`), START 비도달 노드(`start_unreachable_node_ids`) 순서로 수행한다. 논리 lane 배정 직후 primary 노드 전체의 lane을 저장하고, 5단계의 lane 재정렬·표시 열 재사용 후 다시 복원한다. START 비도달 노드는 같은 집합 안에서 incoming edge가 없는 head별 연결 그룹으로 나눈다. 각 head 그룹의 가장 긴 비회귀 경로는 해당 head의 전용 lane에 배치하고, spine 밖 outcome은 부모의 바로 오른쪽 lane에 배치한다. 따라서 START 비도달 노드는 head별 대표 흐름을 한 열로 최대한 유지하면서 분기만 이웃 열로 확장하고, primary 노드의 좌측 배치 영역을 침범하지 않는다.
 - 독립 진입 노드는 lane 2부터 배정한다. 표시 열 재사용 시에도 lane 1은 재사용하지 않으므로 주 흐름 직접 분기용 열을 차지할 수 없다.
 - 시작 노드가 아니고 incoming edge가 없지만 현재 scope 안의 outgoing edge가 있는 독립 진입 노드는, 직접 연결되는 목적지 중 가장 이른 레벨의 바로 위 레벨로 이동한다. 최상단 새 열에 고정하는 대신 목적지 근처에 배치해 연결선을 짧게 유지한다.
@@ -170,6 +171,7 @@ app.py
 - `_on_main_node_selected()` / `_on_child_node_selected()`: 선택한 노드의 정보를 우측 검사기에 표시한다.
 - `_on_main_compound_selected()` / `_on_child_compound_selected()`: compoundAction 하위 scope를 열고 탐색 스택에 추가한다.
 - `_on_close_or_back_child_scope()`: 하위 scope를 닫거나 부모 scope로 돌아간다.
+- `_handle_search(query, from_viewer)`: 단일 Step ID 및 계층형 Step ID(`328:7` 등)를 파싱하여 메인/하위 scope 노드 선택 및 하위 scope 자동 열기를 수행한다.
 - `_on_display_layout_toggled()`: 두 흐름도에 원본 `displayInformation` 레이아웃 적용 여부를 전달하고 다시 그린다.
 - `_on_detail_toggled()`: 두 흐름도에 노드 상세 표시 여부를 전달하고 다시 그린다.
 
