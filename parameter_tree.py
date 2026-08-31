@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 import json
+import sys
 from pathlib import Path
 from typing import Optional, List, Dict
 from PyQt6.QtWidgets import (
@@ -7,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QGroupBox, QTextEdit, QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QBrush
 
 from anritsu_parser import AnritsuNode
 from version import VERSION
@@ -17,7 +18,9 @@ class ParameterTreeWidget(QWidget):
     display_layout_toggled = pyqtSignal(bool)
     detail_toggled = pyqtSignal(bool)
     main_stream_only_toggled = pyqtSignal(bool)
-    TEXT_STYLE_CONFIG_PATH = Path(__file__).with_name("parameter_tree.config")
+    DEFAULT_RULES = [
+        {"text": "OMIT", "match": "exact", "style": "muted"}
+    ]
     TEXT_STYLES = {
         "muted": {"foreground": "#9A9A9A", "italic": True},
         "emphasis": {"foreground": "#7A5700", "background": "#FFF3CD", "bold": True},
@@ -73,7 +76,7 @@ class ParameterTreeWidget(QWidget):
         self.btn_show_detail.setCheckable(True)
         self.btn_show_detail.setChecked(True)
         self.btn_show_detail.setToolTip("Show or hide second-line box details")
-        self.btn_main_stream_only = QPushButton("No show Main stream")
+        self.btn_main_stream_only = QPushButton("Show Main stream only")
         self.btn_main_stream_only.setCheckable(True)
         self.btn_main_stream_only.setToolTip("Show only the main stream that starts from START")
 
@@ -195,21 +198,47 @@ class ParameterTreeWidget(QWidget):
 
         parent_item.addChild(item)
 
-    def _load_text_style_rules(self) -> List[Dict[str, str]]:
-        try:
-            with self.TEXT_STYLE_CONFIG_PATH.open(encoding="utf-8") as config_file:
-                config = json.load(config_file)
-        except (OSError, json.JSONDecodeError):
-            return []
+    def _find_config_path(self) -> Optional[Path]:
+        candidate_paths = []
+        
+        # 1. PyInstaller bundled temp folder
+        if hasattr(sys, "_MEIPASS"):
+            candidate_paths.append(Path(sys._MEIPASS) / "parameter_tree.config")
+            
+        # 2. Directory containing the executable
+        candidate_paths.append(Path(sys.executable).parent / "parameter_tree.config")
+        
+        # 3. Directory containing this script file
+        candidate_paths.append(Path(__file__).resolve().parent / "parameter_tree.config")
+        
+        # 4. Current working directory
+        candidate_paths.append(Path.cwd() / "parameter_tree.config")
+        
+        for path in candidate_paths:
+            if path.is_file():
+                return path
+        return None
 
-        rules = config.get("rules", [])
-        return [
-            rule for rule in rules
-            if isinstance(rule, dict)
-            and isinstance(rule.get("text"), str)
-            and rule.get("match", "exact") in {"exact", "contains"}
-            and rule.get("style") in self.TEXT_STYLES
-        ]
+    def _load_text_style_rules(self) -> List[Dict[str, str]]:
+        config_path = self._find_config_path()
+        if config_path:
+            try:
+                with config_path.open(encoding="utf-8") as config_file:
+                    config = json.load(config_file)
+                rules = config.get("rules", [])
+                parsed_rules = [
+                    rule for rule in rules
+                    if isinstance(rule, dict)
+                    and isinstance(rule.get("text"), str)
+                    and rule.get("match", "exact") in {"exact", "contains"}
+                    and rule.get("style") in self.TEXT_STYLES
+                ]
+                if parsed_rules:
+                    return parsed_rules
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        return list(self.DEFAULT_RULES)
 
     def _apply_text_style(self, item: QTreeWidgetItem, text: str):
         comparison_text = text.casefold()
@@ -228,9 +257,9 @@ class ParameterTreeWidget(QWidget):
             font.setBold(style.get("bold", False))
             font.setItalic(style.get("italic", False))
             for column in range(2):
-                item.setForeground(column, QColor(style["foreground"]))
+                item.setForeground(column, QBrush(QColor(style["foreground"])))
                 if "background" in style:
-                    item.setBackground(column, QColor(style["background"]))
+                    item.setBackground(column, QBrush(QColor(style["background"])))
                 item.setFont(column, font)
             return
 
