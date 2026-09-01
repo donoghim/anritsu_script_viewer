@@ -78,6 +78,7 @@ class ParameterTreeWidget(QWidget):
         self.btn_show_detail.setToolTip("Show or hide second-line box details")
         self.btn_main_stream_only = QPushButton("Show Main stream only")
         self.btn_main_stream_only.setCheckable(True)
+        self.btn_main_stream_only.setChecked(True)
         self.btn_main_stream_only.setToolTip("Show only the main stream that starts from START")
 
         self.btn_expand.clicked.connect(self.expand_all)
@@ -200,20 +201,11 @@ class ParameterTreeWidget(QWidget):
 
     def _find_config_path(self) -> Optional[Path]:
         candidate_paths = []
-        
-        # 1. PyInstaller bundled temp folder
         if hasattr(sys, "_MEIPASS"):
             candidate_paths.append(Path(sys._MEIPASS) / "parameter_tree.config")
-            
-        # 2. Directory containing the executable
         candidate_paths.append(Path(sys.executable).parent / "parameter_tree.config")
-        
-        # 3. Directory containing this script file
         candidate_paths.append(Path(__file__).resolve().parent / "parameter_tree.config")
-        
-        # 4. Current working directory
         candidate_paths.append(Path.cwd() / "parameter_tree.config")
-        
         for path in candidate_paths:
             if path.is_file():
                 return path
@@ -237,7 +229,6 @@ class ParameterTreeWidget(QWidget):
                     return parsed_rules
             except (OSError, json.JSONDecodeError):
                 pass
-
         return list(self.DEFAULT_RULES)
 
     def _apply_text_style(self, item: QTreeWidgetItem, text: str):

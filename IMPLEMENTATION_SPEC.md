@@ -330,9 +330,9 @@ Start에서 도달할 수 없는 노드는 독립 흐름으로 처리한다. 각
 
 ## 인스펙터 모양
 
-인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 `version.py`의 `VERSION`을 사용한 `Version: v<VERSION>`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `Collapse All`, `Use displayInformation Layout`, `Show Detail`이며 spacing은 4픽셀이다. 마지막 두 버튼은 checkable이고, 원본 레이아웃은 해제 상태, 상세 표시는 선택 상태로 시작한다.
+인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 `version.py`의 `VERSION`을 사용한 `Version: v<VERSION>`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `Collapse All`, `Use displayInformation Layout`, `Show Detail`, `Show Main stream only`이며 spacing은 4픽셀이다. 마지막 세 버튼은 checkable이고, 원본 레이아웃은 해제 상태, 상세 표시(`Show Detail`)와 주 흐름 전용 표시(`Show Main stream only`)는 선택(눌러진) 상태로 시작한다.
 
-툴팁은 각각 `Render action boxes using the scenario displayInformation coordinates`, `Show or hide second-line box details`이다. 파라미터 트리 헤더는 `Key`, `Value`이며 Key는 내용에 맞추고 Value는 늘어난다. 교차 행 색상을 사용한다. `Transitions / Conditions`에는 최대 높이 90픽셀의 읽기 전용 편집기가 있다.
+툴팁은 각각 `Render action boxes using the scenario displayInformation coordinates`, `Show or hide second-line box details`, `Show only the main stream that starts from START`이다. 파라미터 트리 헤더는 `Key`, `Value`이며 Key는 내용에 맞추고 Value는 늘어난다. 교차 행 색상을 사용한다. `Transitions / Conditions`에는 최대 높이 90픽셀의 읽기 전용 편집기가 있다.
 
 두 checkable 옵션 중 하나를 전환하면 루트와 표시 중인 하위 그래프를 즉시 다시 구성한다. XML 원본 데이터나 하위 scope 탐색 depth는 변경하지 않는다.
 

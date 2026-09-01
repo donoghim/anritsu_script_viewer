@@ -228,7 +228,7 @@ class FlowchartViewer(QWidget):
         self.selected_item: Optional[GraphicsNodeItem] = None
         self.use_display_layout = False
         self.show_detail = True
-        self.show_main_stream_only = False
+        self.show_main_stream_only = True
         self.connector_items_by_source: Dict[str, List[tuple]] = {}
         self.connector_items_by_target: Dict[str, List[tuple]] = {}
         self.highlighted_connector_items: List[tuple] = []
