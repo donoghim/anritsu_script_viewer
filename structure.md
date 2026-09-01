@@ -169,8 +169,8 @@ app.py
 
 - `load_scenario_file(file_path)`: 파일을 파싱하고 최상위 scope를 표시하며 기존 선택/하위 탐색 상태를 초기화한다.
 - `_on_main_node_selected()` / `_on_child_node_selected()`: 선택한 노드의 정보를 우측 검사기에 표시한다.
-- `_on_main_compound_selected()` / `_on_child_compound_selected()`: compoundAction 하위 scope를 열고 탐색 스택에 추가한다.
-- `_on_close_or_back_child_scope()`: 하위 scope를 닫거나 부모 scope로 돌아간다.
+- `_on_main_compound_selected()` / `_on_child_compound_selected()`: compoundAction 하위 scope를 열고 탐색 스택에 추가하며, 해당 노드 ID를 찾기(검색) 입력창에 기록한다.
+- `_on_close_or_back_child_scope()`: 하위 scope를 닫거나 부모 scope로 돌아갈 때, 직전에 진입했던 컴파운드 노드를 자동으로 선택 및 화면 중앙에 포커스한다.
 - `_handle_search(query, from_viewer)`: 단일 Step ID 및 계층형 Step ID(`328:7` 등)를 파싱하여 메인/하위 scope 노드 선택 및 하위 scope 자동 열기를 수행한다.
 - `_on_display_layout_toggled()`: 두 흐름도에 원본 `displayInformation` 레이아웃 적용 여부를 전달하고 다시 그린다.
 - `_on_detail_toggled()`: 두 흐름도에 노드 상세 표시 여부를 전달하고 다시 그린다.

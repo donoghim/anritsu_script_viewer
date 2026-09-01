@@ -187,6 +187,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         self.param_tree.display_node_info(node, scope_prefix="root")
 
     def _on_main_compound_selected(self, node: AnritsuNode):
+        self.main_flow_viewer.edit_search.setText(node.id)
         if node.child_actions:
             scope_prefix = f"root:{node.id}"
             # Reset stack to level 1
@@ -195,6 +196,7 @@ class AnritsuScenarioViewerWindow(QMainWindow):
             self._update_child_scope_ui()
 
     def _on_child_compound_selected(self, node: AnritsuNode):
+        self.child_flow_viewer.edit_search.setText(node.id)
         if node.child_actions:
             # Push nested compound node to navigation stack
             parent_prefix = self.child_scope_stack[-1][1] if self.child_scope_stack else "root"
@@ -263,14 +265,21 @@ class AnritsuScenarioViewerWindow(QMainWindow):
             self._update_child_scope_ui()
 
     def _on_close_or_back_child_scope(self):
-        if len(self.child_scope_stack) > 1:
+        if not self.child_scope_stack:
+            return
+
+        popped_node, _ = self.child_scope_stack.pop()
+
+        if self.child_scope_stack:
             # Pop nested scope and return to parent child scope
-            self.child_scope_stack.pop()
             self._update_child_scope_ui()
+            # Select and center the compound node that was just exited
+            self.child_flow_viewer.select_and_center_node(popped_node.id)
         else:
-            # Close child scope completely
-            self.child_scope_stack.clear()
+            # Close child scope completely and return to main scope
             self._close_child_scope()
+            # Select and center the root compound node in main flow viewer
+            self.main_flow_viewer.select_and_center_node(popped_node.id)
 
     def _close_child_scope(self):
         self.child_flow_viewer.title_str = "Child Scope: (None)"
