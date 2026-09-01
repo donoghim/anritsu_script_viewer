@@ -68,7 +68,10 @@ class ParameterTreeWidget(QWidget):
         btn_layout.setSpacing(4)
 
         self.btn_expand = QPushButton("Expand All")
-        self.btn_collapse = QPushButton("Collapse All")
+        self.btn_no_show_omit = QPushButton("No show omit")
+        self.btn_no_show_omit.setCheckable(True)
+        self.btn_no_show_omit.setChecked(True)
+        self.btn_no_show_omit.setToolTip("Hide items with OMIT values from parameter tree")
         self.btn_show_sel = QPushButton("Use displayInformation Layout")
         self.btn_show_sel.setCheckable(True)
         self.btn_show_sel.setToolTip("Render action boxes using the scenario displayInformation coordinates")
@@ -82,13 +85,13 @@ class ParameterTreeWidget(QWidget):
         self.btn_main_stream_only.setToolTip("Show only the main stream that starts from START")
 
         self.btn_expand.clicked.connect(self.expand_all)
-        self.btn_collapse.clicked.connect(self.collapse_all)
+        self.btn_no_show_omit.toggled.connect(self._on_no_show_omit_toggled)
         self.btn_show_sel.toggled.connect(self.display_layout_toggled)
         self.btn_show_detail.toggled.connect(self.detail_toggled)
         self.btn_main_stream_only.toggled.connect(self.main_stream_only_toggled)
 
         btn_layout.addWidget(self.btn_expand)
-        btn_layout.addWidget(self.btn_collapse)
+        btn_layout.addWidget(self.btn_no_show_omit)
         btn_layout.addWidget(self.btn_show_sel)
         btn_layout.addWidget(self.btn_show_detail)
         btn_layout.addWidget(self.btn_main_stream_only)
@@ -137,7 +140,8 @@ class ParameterTreeWidget(QWidget):
         for param_elem in node.parameters:
             self._build_tree_items(param_elem, self.tree_widget.invisibleRootItem())
 
-        # Expand all tree nodes by default when a node is selected
+        # Apply omit filter and expand
+        self._apply_omit_filter()
         self.tree_widget.expandAll()
 
         # Populate Transitions / Conditions
@@ -254,8 +258,43 @@ class ParameterTreeWidget(QWidget):
                 item.setFont(column, font)
             return
 
-    def expand_all(self):
+    def _on_no_show_omit_toggled(self, checked: bool):
+        self._apply_omit_filter()
+
+    def _apply_omit_filter(self):
+        hide_omit = self.btn_no_show_omit.isChecked()
+        root = self.tree_widget.invisibleRootItem()
+        for i in range(root.childCount()):
+            self._filter_item_omit(root.child(i), hide_omit)
         self.tree_widget.expandAll()
 
-    def collapse_all(self):
-        self.tree_widget.collapseAll()
+    def _filter_item_omit(self, item: QTreeWidgetItem, hide_omit: bool) -> bool:
+        if not hide_omit:
+            item.setHidden(False)
+            for i in range(item.childCount()):
+                self._filter_item_omit(item.child(i), False)
+            return True
+
+        val_text = item.text(1).strip()
+        if val_text.casefold() == "omit":
+            item.setHidden(True)
+            for i in range(item.childCount()):
+                self._filter_item_omit(item.child(i), True)
+            return False
+
+        visible_children = 0
+        for i in range(item.childCount()):
+            child = item.child(i)
+            if self._filter_item_omit(child, True):
+                visible_children += 1
+
+        if item.childCount() > 0:
+            is_visible = (visible_children > 0)
+        else:
+            is_visible = (val_text.casefold() != "omit")
+
+        item.setHidden(not is_visible)
+        return is_visible
+
+    def expand_all(self):
+        self.tree_widget.expandAll()

@@ -90,6 +90,9 @@ class GraphicsNodeItem(QGraphicsRectItem):
             value_parts = self._timing_values()
             display_name = self._display_name_value()
             condition = self._condition_value()
+            term_id = self._compound_terminator_id()
+            if term_id:
+                value_parts.insert(0, f"id: {term_id}")
             if condition:
                 value_parts.insert(0, f"Condition: {condition}")
             if display_name:
@@ -170,6 +173,16 @@ class GraphicsNodeItem(QGraphicsRectItem):
                             values.append(f"{child_name}={child_value}")
                     if values:
                         return ", ".join(values)
+        return ""
+
+    def _compound_terminator_id(self) -> str:
+        if "terminator" not in self.node.name.lower() and self.node.action_type != "COMPOUND_TERMINATOR":
+            return ""
+        for parameter in self.node.parameters:
+            for element in parameter.iter():
+                tag = element.tag.split("}")[-1].lower()
+                if tag == "id" and (element.text or "").strip():
+                    return (element.text or "").strip()
         return ""
 
     def set_node_selected(self, selected: bool):
@@ -278,6 +291,8 @@ class FlowchartViewer(QWidget):
         query = self.edit_search.text().strip()
         if query:
             self.find_requested.emit(query)
+            self.edit_search.selectAll()
+            self.edit_search.setFocus()
 
     def select_and_center_node(self, node_id: str) -> bool:
         item = self.node_items.get(node_id)

@@ -2,15 +2,64 @@ import os
 from typing import Optional, List, Tuple
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QSplitter, QFileDialog, QPushButton, QLabel, QMessageBox
+    QSplitter, QSplitterHandle, QFileDialog, QPushButton, QLabel, QMessageBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPainter, QColor, QBrush, QPen
 
 from anritsu_parser import parse_anritsu_test_file, AnritsuScenario, AnritsuNode
 from flowchart_viewer import FlowchartViewer
 from parameter_tree import ParameterTreeWidget
 from version import APP_NAME, VERSION
+
+class CustomSplitterHandle(QSplitterHandle):
+    """Custom splitter handle with visible affordance dots and hover highlight."""
+    def __init__(self, orientation, parent):
+        super().__init__(orientation, parent)
+        self.setCursor(
+            Qt.CursorShape.SizeVerCursor if orientation == Qt.Orientation.Vertical else Qt.CursorShape.SizeHorCursor
+        )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        rect = self.contentsRect()
+        is_hover = self.underMouse()
+        
+        # Background
+        bg_color = QColor(74, 144, 226, 200) if is_hover else QColor(225, 228, 234)
+        painter.fillRect(rect, bg_color)
+        
+        # Border & Grip
+        border_color = QColor(42, 112, 194) if is_hover else QColor(195, 200, 208)
+        grip_color = QColor(255, 255, 255) if is_hover else QColor(135, 142, 153)
+        painter.setBrush(QBrush(grip_color))
+
+        cx = rect.center().x()
+        cy = rect.center().y()
+
+        if self.orientation() == Qt.Orientation.Vertical:
+            painter.setPen(border_color)
+            painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+            painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+            painter.setPen(grip_color)
+            for dx in [-24, -12, 0, 12, 24]:
+                painter.drawEllipse(int(cx + dx - 1), int(cy - 1), 3, 3)
+        else:
+            painter.setPen(border_color)
+            painter.drawLine(rect.left(), rect.top(), rect.left(), rect.bottom())
+            painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
+            painter.setPen(grip_color)
+            for dy in [-24, -12, 0, 12, 24]:
+                painter.drawEllipse(int(cx - 1), int(cy + dy - 1), 3, 3)
+
+class VisualSplitter(QSplitter):
+    """QSplitter with custom visually distinguishable handle."""
+    def __init__(self, orientation, parent=None, handle_width=7):
+        super().__init__(orientation, parent)
+        self.setHandleWidth(handle_width)
+
+    def createHandle(self):
+        return CustomSplitterHandle(self.orientation(), self)
 
 class AnritsuScenarioViewerWindow(QMainWindow):
     """Main window with nested child-scope navigation."""
@@ -57,11 +106,11 @@ class AnritsuScenarioViewerWindow(QMainWindow):
         main_layout.addLayout(top_bar)
 
         # 2. Main Horizontal Splitter (Left: Flowcharts, Right: Parameter Inspector)
-        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = VisualSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setChildrenCollapsible(False)
 
         # Left Vertical Splitter (Upper: Main Scope, Lower: Child Scope)
-        self.left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.left_splitter = VisualSplitter(Qt.Orientation.Vertical)
         self.left_splitter.setChildrenCollapsible(False)
 
         self.main_flow_viewer = FlowchartViewer(title="Main Scope: root")

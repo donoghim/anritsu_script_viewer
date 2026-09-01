@@ -326,13 +326,13 @@ Start에서 도달할 수 없는 노드는 독립 흐름으로 처리한다. 각
 
 선택 테두리는 RGB(30,90,255), 3픽셀이다.
 
-노드 레이블은 1행의 액션 식별 정보와 선택적 2행의 상세 정보로 구성한다. 1행 `<marker><scope-prefix>:<id>: <name>`은 항상 완전하게 표시되어야 하며, 2행이 길더라도 축소, 생략, 가림, 겹침, 세로 밀어내기가 발생하면 안 된다. 상세 정보는 1행의 가용 폭을 침범하지 않는 독립 영역에 표시한다. 2행 텍스트가 박스 폭을 넘으면, 줄바꿈보다 먼저 박스의 가용 폭 안에서 시작 부분부터 표시 가능한 최대 길이까지 보여 주고, 남은 부분은 ASCII 말줄임표 `...`로 축약한다. 이 처리에서 1행의 글꼴, 위치, 가시 폭은 변경하면 안 된다. 상세 정보를 여러 줄로 표시하는 구현은 허용되며, 이 경우 박스 높이를 늘려 1행과 2행의 텍스트/테두리/연결선이 서로 겹치지 않도록 해야 한다. `Show Detail`을 끄면 2행 영역을 제거하고 1행을 박스 중앙에 유지한다.
+노드 레이블은 1행의 액션 식별 정보와 선택적 2행의 상세 정보로 구성한다. 1행 `<marker><scope-prefix>:<id>: <name>`은 항상 완전하게 표시되어야 하며, 2행이 길더라도 축소, 생략, 가림, 겹침, 세로 밀어내기가 발생하면 안 된다. 상세 정보는 1행의 가용 폭을 침범하지 않는 독립 영역에 표시한다(`CompoundTerminator` 노드의 경우 파라미터의 대상 출구 번호 `id: <id>`를 2행에 표시). 2행 텍스트가 박스 폭을 넘으면, 줄바꿈보다 먼저 박스의 가용 폭 안에서 시작 부분부터 표시 가능한 최대 길이까지 보여 주고, 남은 부분은 ASCII 말줄임표 `...`로 축약한다. 이 처리에서 1행의 글꼴, 위치, 가시 폭은 변경하면 안 된다. 상세 정보를 여러 줄로 표시하는 구현은 허용되며, 이 경우 박스 높이를 늘려 1행과 2행의 텍스트/테두리/연결선이 서로 겹치지 않도록 해야 한다. `Show Detail`을 끄면 2행 영역을 제거하고 1행을 박스 중앙에 유지한다.
 
 ## 인스펙터 모양
 
-인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 `version.py`의 `VERSION`을 사용한 `Version: v<VERSION>`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `Collapse All`, `Use displayInformation Layout`, `Show Detail`, `Show Main stream only`이며 spacing은 4픽셀이다. 마지막 세 버튼은 checkable이고, 원본 레이아웃은 해제 상태, 상세 표시(`Show Detail`)와 주 흐름 전용 표시(`Show Main stream only`)는 선택(눌러진) 상태로 시작한다.
+인스펙터는 6픽셀 margin/spacing을 사용한다. `Step Details`는 내부 margin 6픽셀, spacing 2픽셀이며 `version.py`의 `VERSION`을 사용한 `Version: v<VERSION>`, 파일, 단계, 유형, 설명, `Parameters:`를 표시한다. 도구 모음 순서는 `Expand All`, `No show omit`, `Use displayInformation Layout`, `Show Detail`, `Show Main stream only`이며 spacing은 4픽셀이다. 마지막 네 버튼은 checkable이고, `No show omit`, `Show Detail`, `Show Main stream only`는 선택(눌러진) 상태로 시작하고 `Use displayInformation Layout`은 해제 상태로 시작한다.
 
-툴팁은 각각 `Render action boxes using the scenario displayInformation coordinates`, `Show or hide second-line box details`, `Show only the main stream that starts from START`이다. 파라미터 트리 헤더는 `Key`, `Value`이며 Key는 내용에 맞추고 Value는 늘어난다. 교차 행 색상을 사용한다. `Transitions / Conditions`에는 최대 높이 90픽셀의 읽기 전용 편집기가 있다.
+툴팁은 각각 `Hide items with OMIT values from parameter tree`, `Render action boxes using the scenario displayInformation coordinates`, `Show or hide second-line box details`, `Show only the main stream that starts from START`이다. 파라미터 트리 헤더는 `Key`, `Value`이며 Key는 내용에 맞추고 Value는 늘어난다. 교차 행 색상을 사용한다. `Transitions / Conditions`에는 최대 높이 90픽셀의 읽기 전용 편집기가 있다.
 
 두 checkable 옵션 중 하나를 전환하면 루트와 표시 중인 하위 그래프를 즉시 다시 구성한다. XML 원본 데이터나 하위 scope 탐색 depth는 변경하지 않는다.
 

@@ -185,7 +185,7 @@ app.py
 ### 화면 구성
 
 - Step Details: 애플리케이션 버전, 파일명, scope를 포함한 Step ID, 타입, 설명을 표시한다.
-- 제어 막대: 파라미터 트리 전체 펼치기/접기, 원본 레이아웃 사용, 노드 상세 표시 전환을 제공한다.
+- 제어 막대: 파라미터 트리 전체 펼치기(`Expand All`), OMIT 항목 숨김 전환(`No show omit`), 원본 레이아웃 사용(`Use displayInformation Layout`), 노드 상세 표시(`Show Detail`), 주 흐름 전용 표시(`Show Main stream only`) 전환을 제공한다.
 - Parameter Tree: parameter XML의 태그, 속성 및 텍스트 값을 계층형 트리로 표시한다.
 - Transitions / Conditions: 현재 노드의 다음 Action 전이와 하위 scope 시작 지점을 표시한다.
 
